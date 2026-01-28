@@ -1,4 +1,4 @@
-@keyframes slideDown {
+/* @keyframes slideDown {
   from {
     opacity: 0;
     transform: translateY(-10px);
@@ -17,4 +17,4 @@
 
 .animate-slideDown {
   animation: slideDown 0.2s ease-out;
-}
+} */

@@ -1,5 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { Calendar, Mail, Save, User, Lock, Upload, X } from "lucide-react";
+import { getErrorMessage, requestJson, requestWithRetry } from "../utils/api";
+
+const USE_MOCK_PROFILE = true;
+const PROFILE_ENDPOINTS = {
+  fetch: "/api/user/profile",
+  update: "/api/user/profile",
+  password: "/api/user/change-password",
+};
 
 export default function ProfilePage() {
   // Simulating data that would come from backend API
@@ -27,6 +35,7 @@ export default function ProfilePage() {
   });
 
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
   const [showPhotoMenu, setShowPhotoMenu] = useState(false);
   const [hasCustomPhoto, setHasCustomPhoto] = useState(false);
   const [photoPreview, setPhotoPreview] = useState(null);
@@ -36,15 +45,37 @@ export default function ProfilePage() {
     fetchUserData();
   }, []);
 
+  useEffect(() => {
+    const storedName = localStorage.getItem("profileName");
+    const storedEmail = localStorage.getItem("profileEmail");
+    if (storedName || storedEmail) {
+      setUserData((prev) => ({
+        ...prev,
+        fullName: storedName || prev.fullName,
+        email: storedEmail || prev.email,
+        avatar: (storedName || prev.fullName)?.charAt(0)?.toUpperCase() || "U"
+      }));
+      setPersonalInfo((prev) => ({
+        ...prev,
+        fullName: storedName || prev.fullName,
+        email: storedEmail || prev.email
+      }));
+    }
+  }, []);
+
+  useEffect(() => {
+    const storedPhoto = localStorage.getItem("profilePhoto");
+    if (storedPhoto) {
+      setPhotoPreview(storedPhoto);
+      setHasCustomPhoto(true);
+    }
+  }, []);
+
   // This function would call your backend API
   const fetchUserData = async () => {
     setLoading(true);
+    setError(null);
     try {
-      // Replace with actual API call
-      // const response = await fetch('/api/user/profile');
-      // const data = await response.json();
-      
-      // Mock data for now
       const mockData = {
         id: 1,
         fullName: "Vr6295836",
@@ -56,14 +87,32 @@ export default function ProfilePage() {
         emailVerified: true
       };
 
-      setUserData(mockData);
+      const data = USE_MOCK_PROFILE
+        ? mockData
+        : await requestWithRetry(() => requestJson(PROFILE_ENDPOINTS.fetch));
+
+      const storedName = localStorage.getItem("profileName");
+      const storedEmail = localStorage.getItem("profileEmail");
+      const finalName = storedName || mockData.fullName;
+      const finalEmail = storedEmail || mockData.email;
+
+      setUserData({
+        ...mockData,
+        fullName: finalName,
+        email: finalEmail,
+        avatar: finalName?.charAt(0)?.toUpperCase() || "U"
+      });
       setPersonalInfo({
-        fullName: mockData.fullName,
-        email: mockData.email,
+        fullName: finalName,
+        email: finalEmail,
         phone: mockData.phone
       });
+      localStorage.setItem("profileName", finalName || "");
+      localStorage.setItem("profileEmail", finalEmail || "");
+      window.dispatchEvent(new Event("profileInfoUpdated"));
     } catch (error) {
       console.error("Error fetching user data:", error);
+      setError(getErrorMessage(error, "Unable to load profile details right now."));
     } finally {
       setLoading(false);
     }
@@ -85,15 +134,17 @@ export default function ProfilePage() {
 
   const handleSaveChanges = async () => {
     setLoading(true);
+    setError(null);
     try {
-      // Replace with actual API call
-      // const response = await fetch('/api/user/profile', {
-      //   method: 'PUT',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify(personalInfo)
-      // });
-      
-      console.log("Saving personal information:", personalInfo);
+      if (!USE_MOCK_PROFILE) {
+        await requestWithRetry(() =>
+          requestJson(PROFILE_ENDPOINTS.update, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(personalInfo),
+          })
+        );
+      }
       
       // Update local state after successful save
       setUserData({ 
@@ -101,9 +152,13 @@ export default function ProfilePage() {
         ...personalInfo,
         avatar: personalInfo.fullName?.charAt(0).toUpperCase() || "U"
       });
+      localStorage.setItem("profileName", personalInfo.fullName || "");
+      localStorage.setItem("profileEmail", personalInfo.email || "");
+      window.dispatchEvent(new Event("profileInfoUpdated"));
       alert("Changes saved successfully!");
     } catch (error) {
       console.error("Error saving changes:", error);
+      setError(getErrorMessage(error, "Failed to save changes."));
       alert("Failed to save changes");
     } finally {
       setLoading(false);
@@ -122,18 +177,20 @@ export default function ProfilePage() {
     }
 
     setLoading(true);
+    setError(null);
     try {
-      // Replace with actual API call
-      // const response = await fetch('/api/user/change-password', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify({
-      //     currentPassword: securityInfo.currentPassword,
-      //     newPassword: securityInfo.newPassword
-      //   })
-      // });
-      
-      console.log("Updating password");
+      if (!USE_MOCK_PROFILE) {
+        await requestWithRetry(() =>
+          requestJson(PROFILE_ENDPOINTS.password, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              currentPassword: securityInfo.currentPassword,
+              newPassword: securityInfo.newPassword,
+            }),
+          })
+        );
+      }
       
       // Clear password fields after successful update
       setSecurityInfo({
@@ -144,6 +201,7 @@ export default function ProfilePage() {
       alert("Password updated successfully!");
     } catch (error) {
       console.error("Error updating password:", error);
+      setError(getErrorMessage(error, "Failed to update password."));
       alert("Failed to update password");
     } finally {
       setLoading(false);
@@ -159,6 +217,8 @@ export default function ProfilePage() {
         setPhotoPreview(reader.result);
         setHasCustomPhoto(true);
         setShowPhotoMenu(false);
+        localStorage.setItem("profilePhoto", reader.result);
+        window.dispatchEvent(new Event("profilePhotoUpdated"));
         
         // Here you would upload to your backend
         console.log("Uploading photo:", file);
@@ -174,6 +234,8 @@ export default function ProfilePage() {
     setPhotoPreview(null);
     setHasCustomPhoto(false);
     setShowPhotoMenu(false);
+    localStorage.removeItem("profilePhoto");
+    window.dispatchEvent(new Event("profilePhotoUpdated"));
     alert("Photo removed successfully!");
   };
 
@@ -199,6 +261,11 @@ export default function ProfilePage() {
       </div>
 
       <div className="max-w-6xl mx-auto px-8">
+        {error && (
+          <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {error}
+          </div>
+        )}
         <div className="grid md:grid-cols-3 gap-6">
           {/* Left Sidebar Card */}
           <div className="md:col-span-1">

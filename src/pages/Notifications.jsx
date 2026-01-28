@@ -1,7 +1,20 @@
-import React, { useState } from "react";
-import { Bell, Mail, Trash2, Clock, Plus } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import { Bell, Mail, Trash2, Clock, Plus, X } from "lucide-react";
+import { getErrorMessage, requestJson, requestWithRetry } from "../utils/api";
+
+const USE_MOCK_NOTIFICATIONS = true; // TODO BACKEND: API live hote hi false, mock hata dena
+const NOTIFICATION_ENDPOINTS = {
+  settings: "/api/notifications/settings",
+  list: "/api/notifications", // TODO BACKEND: yahi endpoint use hoga
+};
 
 const PRIMARY_BLUE = "#3B82F6";
+
+const INITIAL_NOTIFICATIONS = [
+  { id: 1, message: "New tender matched: IT Infrastructure", isRead: false },
+  { id: 2, message: "Deadline approaching: DOT-HWY-2026-042", isRead: false },
+  { id: 3, message: "System sync completed", isRead: true },
+];
 
 export default function Notifications() {
   const [desktop, setDesktop] = useState(true);
@@ -12,6 +25,95 @@ export default function Notifications() {
   const [startTime, setStartTime] = useState("22:00");
   const [endTime, setEndTime] = useState("07:00");
   const [showSaveNotification, setShowSaveNotification] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS);
+  const notificationMenuRef = useRef(null);
+
+  const safeEmailList = Array.isArray(emailList) ? emailList : [];
+
+  const fetchSettings = async () => {
+    if (USE_MOCK_NOTIFICATIONS) return; // TODO BACKEND: mock delete karke API call enable hoga
+    try {
+      setLoading(true);
+      setError(null);
+
+      const data = await requestWithRetry(() =>
+        requestJson(NOTIFICATION_ENDPOINTS.settings)
+      );
+
+      if (!data || typeof data !== "object") {
+        throw new Error("Invalid notification settings");
+      }
+
+      setDesktop(Boolean(data.desktop));
+      setEmail(Boolean(data.email));
+      setSilent(Boolean(data.silent));
+      if (Array.isArray(data.emailList)) {
+        setEmailList(data.emailList);
+      }
+      if (typeof data.startTime === "string") setStartTime(data.startTime);
+      if (typeof data.endTime === "string") setEndTime(data.endTime);
+    } catch (err) {
+      console.error(err);
+      setError(getErrorMessage(err, "Failed to load notification settings"));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchSettings();
+  }, []);
+
+  const fetchNotifications = async () => {
+    if (USE_MOCK_NOTIFICATIONS) return; // TODO BACKEND: mock hata ke API se data aayega
+    try {
+      setError(null);
+      const data = await requestWithRetry(() =>
+        requestJson(NOTIFICATION_ENDPOINTS.list)
+      );
+      if (!Array.isArray(data)) {
+        throw new Error("Invalid notifications format from server");
+      }
+      setNotifications(data);
+    } catch (err) {
+      console.error(err);
+      setError(getErrorMessage(err, "Failed to load notifications"));
+    }
+  };
+
+  useEffect(() => {
+    fetchNotifications();
+  }, []);
+
+  useEffect(() => {
+    if (!showNotifications) return;
+
+    const handleClickOutside = (event) => {
+      if (
+        notificationMenuRef.current &&
+        !notificationMenuRef.current.contains(event.target)
+      ) {
+        setShowNotifications(false);
+      }
+    };
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setShowNotifications(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [showNotifications]);
 
   const handleAddEmail = () => {
     if (newEmail.trim() && newEmail.includes("@")) {
@@ -25,10 +127,58 @@ export default function Notifications() {
   };
 
   const handleSaveChanges = () => {
+    setError(null);
     setShowSaveNotification(true);
     setTimeout(() => {
       setShowSaveNotification(false);
     }, 3000);
+    if (USE_MOCK_NOTIFICATIONS) return;
+    setLoading(true);
+    requestWithRetry(() =>
+      requestJson(NOTIFICATION_ENDPOINTS.settings, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          desktop,
+          email,
+          silent,
+          emailList: safeEmailList,
+          startTime,
+          endTime,
+        }),
+      })
+    )
+      .catch((err) => {
+        console.error(err);
+        setError(getErrorMessage(err, "Failed to save settings"));
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  };
+
+  const unreadCount = notifications.filter((n) => !n.isRead).length;
+
+  const handleToggleNotifications = () => {
+    setShowNotifications((prev) => !prev);
+  };
+
+  const handleMarkAllRead = () => {
+    setNotifications((list) => list.map((n) => ({ ...n, isRead: true })));
+  };
+
+  const handleClearNotifications = () => {
+    setNotifications([]);
+  };
+
+  const handleNotificationClick = (id) => {
+    setNotifications((list) =>
+      list.map((n) => (n.id === id ? { ...n, isRead: true } : n))
+    );
+  };
+
+  const handleRemoveNotification = (id) => {
+    setNotifications((list) => list.filter((n) => n.id !== id));
   };
 
   return (
@@ -46,15 +196,99 @@ export default function Notifications() {
           </div>
 
           {/* Bell + badge */}
-          <div className="relative">
-            <Bell size={20} className="text-[#0F172A]" />
-            <span className="absolute -top-1 -right-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-[#EF4444] text-[10px] font-medium text-white">
-              3
-            </span>
+          <div className="relative" ref={notificationMenuRef}>
+            <button
+              onClick={handleToggleNotifications}
+              className="relative p-1.5 rounded-lg hover:bg-gray-100 transition"
+            >
+              <Bell size={20} className="text-[#0F172A]" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-[#EF4444] text-[10px] font-medium text-white">
+                  {unreadCount}
+                </span>
+              )}
+            </button>
+
+            {showNotifications && (
+              <div className="absolute right-0 mt-2 w-72 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
+                <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200">
+                  <span className="text-sm font-semibold">Notifications</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleMarkAllRead}
+                      disabled={unreadCount === 0}
+                      className={`text-[11px] ${
+                        unreadCount === 0
+                          ? "text-gray-300 cursor-not-allowed"
+                          : "text-blue-600 hover:text-blue-700"
+                      }`}
+                    >
+                      Mark all
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleClearNotifications}
+                      disabled={notifications.length === 0}
+                      className={`text-[11px] ${
+                        notifications.length === 0
+                          ? "text-gray-300 cursor-not-allowed"
+                          : "text-red-500 hover:text-red-600"
+                      }`}
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+
+                {notifications.length === 0 ? (
+                  <div className="px-4 py-3 text-xs text-gray-500 text-center">
+                    No notifications
+                  </div>
+                ) : (
+                  notifications.map((n) => (
+                    <div
+                      key={n.id}
+                      onClick={() => handleNotificationClick(n.id)}
+                      className={`flex items-start justify-between gap-2 px-4 py-2 text-xs border-b last:border-b-0 cursor-pointer ${
+                        n.isRead
+                          ? "text-gray-500"
+                          : "text-gray-900 font-medium"
+                      }`}
+                    >
+                      <span className="flex-1">{n.message}</span>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleRemoveNotification(n.id);
+                        }}
+                        className="text-gray-400 hover:text-red-500"
+                        title="Remove notification"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
           </div>
         </div>
         <div className="h-px bg-[#E2E8F0]" />
       </div>
+
+      {loading && (
+        <div className="mx-8 mt-4 text-sm text-gray-500 flex items-center gap-2">
+          <span className="animate-spin h-4 w-4 border-2 border-gray-300 border-t-transparent rounded-full"></span>
+          Loading notification settings...
+        </div>
+      )}
+      {error && (
+        <div className="mx-8 mt-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+          {error}
+        </div>
+      )}
 
       {/* CONTENT — CENTERED */}
       <div className="px-8 py-6 flex justify-center">
@@ -102,7 +336,7 @@ export default function Notifications() {
               </button>
             </div>
 
-            {emailList.map((item, index) => (
+            {safeEmailList.map((item, index) => (
               <div
                 key={index}
                 className="flex items-center justify-between rounded-lg bg-[#F9FAFB] px-4 py-2.5 mb-2"

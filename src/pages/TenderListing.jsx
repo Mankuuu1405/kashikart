@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Search,
   Filter,
@@ -17,6 +17,23 @@ import {
   ChevronDown,
   Check,
 } from 'lucide-react';
+import { EmptyState } from '../components/States';
+import { getErrorMessage, requestJson, requestWithRetry } from '../utils/api';
+
+const USE_MOCK_TENDERS = true; // TODO BACKEND: API live hote hi false, mock hata dena
+const USE_MOCK_NOTIFICATIONS = true; // TODO BACKEND: yaha real notifications API lagega
+const TENDER_ENDPOINTS = {
+  list: '/api/tenders',
+};
+const NOTIFICATION_ENDPOINTS = {
+  list: '/api/notifications', // TODO BACKEND: yahi endpoint use hoga
+};
+
+const INITIAL_NOTIFICATIONS = [
+  { id: 1, message: 'New tender matched: IT Infrastructure Modernization', isRead: false },
+  { id: 2, message: 'Deadline approaching: DOT-HWY-2026-042', isRead: false },
+  { id: 3, message: 'Tender saved: DHS-CYBER-2026-015', isRead: true },
+];
 
 const StatusBadge = ({ status }) => {
   const styles = {
@@ -48,6 +65,11 @@ const TenderListing = () => {
   const [openDropdown, setOpenDropdown] = useState(null);
   const [sourceOpen, setSourceOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS);
+  const notificationMenuRef = useRef(null);
 
 
 
@@ -170,6 +192,83 @@ const TenderListing = () => {
     },
   ];
 
+  const [tenders, setTenders] = useState(allTenders);
+
+  const fetchTenders = async () => {
+    if (USE_MOCK_TENDERS) return; // TODO BACKEND: mock delete karke API call enable hoga
+    try {
+      setLoading(true);
+      setError(null);
+
+      const data = await requestWithRetry(() =>
+        requestJson(TENDER_ENDPOINTS.list)
+      );
+
+      if (!Array.isArray(data)) {
+        throw new Error('Invalid tenders format from server');
+      }
+
+      setTenders(data);
+    } catch (err) {
+      console.error(err);
+      setError(getErrorMessage(err, 'Failed to load tenders'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchTenders();
+  }, []);
+
+  const fetchNotifications = async () => {
+    if (USE_MOCK_NOTIFICATIONS) return; // TODO BACKEND: mock hata ke API se data aayega
+    try {
+      setError(null);
+      const data = await requestWithRetry(() =>
+        requestJson(NOTIFICATION_ENDPOINTS.list)
+      );
+      if (!Array.isArray(data)) {
+        throw new Error('Invalid notifications format from server');
+      }
+      setNotifications(data);
+    } catch (err) {
+      console.error(err);
+      setError(getErrorMessage(err, 'Failed to load notifications'));
+    }
+  };
+
+  useEffect(() => {
+    fetchNotifications();
+  }, []);
+
+  useEffect(() => {
+    if (!showNotifications) return;
+
+    const handleClickOutside = (event) => {
+      if (
+        notificationMenuRef.current &&
+        !notificationMenuRef.current.contains(event.target)
+      ) {
+        setShowNotifications(false);
+      }
+    };
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setShowNotifications(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showNotifications]);
+
 
   const clearFilters = () => {
     setSearchQuery('');
@@ -178,6 +277,30 @@ const TenderListing = () => {
     setStartDate(null);
     setEndDate(null);
     setShowDatePicker(false);
+  };
+
+  const unreadCount = notifications.filter((n) => !n.isRead).length;
+
+  const handleToggleNotifications = () => {
+    setShowNotifications((prev) => !prev);
+  };
+
+  const handleMarkAllRead = () => {
+    setNotifications((list) => list.map((n) => ({ ...n, isRead: true })));
+  };
+
+  const handleClearNotifications = () => {
+    setNotifications([]);
+  };
+
+  const handleNotificationClick = (id) => {
+    setNotifications((list) =>
+      list.map((n) => (n.id === id ? { ...n, isRead: true } : n))
+    );
+  };
+
+  const handleRemoveNotification = (id) => {
+    setNotifications((list) => list.filter((n) => n.id !== id));
   };
 
   const hasActiveFilters = searchQuery || selectedStatus !== 'All Status' || selectedSource !== 'All Sources' || startDate || endDate;
@@ -190,7 +313,8 @@ const TenderListing = () => {
     }
   }, [startDate, endDate]);
 
-  const filteredTenders = allTenders.filter(tender => {
+  const safeTenders = Array.isArray(tenders) ? tenders : [];
+  const filteredTenders = safeTenders.filter(tender => {
     const matchesSearch = 
       searchQuery === '' ||
       tender.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -328,9 +452,98 @@ const TenderListing = () => {
               {filteredTenders.length} tenders found
             </p>
           </div>
-          <Bell size={18} className="text-gray-500 cursor-pointer hover:text-gray-700" />
+          <div className="relative" ref={notificationMenuRef}>
+            <button
+              onClick={handleToggleNotifications}
+              className="relative p-1.5 rounded-lg hover:bg-gray-100 transition"
+            >
+              <Bell size={18} className="text-gray-500 hover:text-gray-700" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] rounded-full px-1">
+                  {unreadCount}
+                </span>
+              )}
+            </button>
+
+            {showNotifications && (
+              <div className="absolute right-0 mt-2 w-72 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
+                <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200">
+                  <span className="text-sm font-semibold">Notifications</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleMarkAllRead}
+                      disabled={unreadCount === 0}
+                      className={`text-[11px] ${
+                        unreadCount === 0
+                          ? 'text-gray-300 cursor-not-allowed'
+                          : 'text-blue-600 hover:text-blue-700'
+                      }`}
+                    >
+                      Mark all
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleClearNotifications}
+                      disabled={notifications.length === 0}
+                      className={`text-[11px] ${
+                        notifications.length === 0
+                          ? 'text-gray-300 cursor-not-allowed'
+                          : 'text-red-500 hover:text-red-600'
+                      }`}
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+
+                {notifications.length === 0 ? (
+                  <div className="px-4 py-3 text-xs text-gray-500 text-center">
+                    No notifications
+                  </div>
+                ) : (
+                  notifications.map((n) => (
+                    <div
+                      key={n.id}
+                      onClick={() => handleNotificationClick(n.id)}
+                      className={`flex items-start justify-between gap-2 px-4 py-2 text-xs border-b last:border-b-0 cursor-pointer ${
+                        n.isRead
+                          ? 'text-gray-500'
+                          : 'text-gray-900 font-medium'
+                      }`}
+                    >
+                      <span className="flex-1">{n.message}</span>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleRemoveNotification(n.id);
+                        }}
+                        className="text-gray-400 hover:text-red-500"
+                        title="Remove notification"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
+
+      {loading && (
+        <div className="mx-6 mt-4 text-sm text-gray-500 flex items-center gap-2">
+          <span className="animate-spin h-4 w-4 border-2 border-gray-300 border-t-transparent rounded-full"></span>
+          Loading tenders...
+        </div>
+      )}
+      {error && (
+        <div className="mx-6 mt-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+          {error}
+        </div>
+      )}
 
       <div className="flex-1 overflow-auto px-10 py-6">
         <div className="bg-white rounded-lg p-3 border border-gray-200 mb-3 shadow-sm">
@@ -583,8 +796,18 @@ const TenderListing = () => {
               </thead>
 
               <tbody className="divide-y divide-gray-100">
-                {filteredTenders.map((t) => (
-                  <tr key={t.id} className="hover:bg-gray-50 transition">
+                {filteredTenders.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-6 py-8">
+                      <EmptyState
+                        title="No tenders found"
+                        message="Try adjusting filters or check back later."
+                      />
+                    </td>
+                  </tr>
+                ) : (
+                  filteredTenders.map((t) => (
+                    <tr key={t.id} className="hover:bg-gray-50 transition">
                     <td className="px-6 py-4">
                       <p className="text-sm font-semibold text-gray-800 mb-1 max-w-[300px]">
                         {t.title}
@@ -683,14 +906,15 @@ const TenderListing = () => {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  ))
+                )}
               </tbody>
             </table>
           </div>
         </div>
 
         <div className="flex justify-between items-center mt-4 text-sm text-gray-500">
-          <span>Showing {filteredTenders.length} of {allTenders.length} tenders</span>
+          <span>Showing {filteredTenders.length} of {safeTenders.length} tenders</span>
         </div>
       </div>
 

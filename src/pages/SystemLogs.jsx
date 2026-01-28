@@ -2,6 +2,8 @@ import React from "react";
 // import { useMemo, useState } from "react";
 import { useMemo, useState, useEffect } from "react";
 // import axios from "axios";
+import { EmptyState } from "../components/States";
+import { getErrorMessage, requestJson, requestWithRetry } from "../utils/api";
 
 import {
   CheckCircle,
@@ -16,9 +18,16 @@ import {
 } from "lucide-react";
 
 const VALID_STATUS = ["Success", "Warning", "Error", "Info"];
+const USE_MOCK_LOGS = true;
+const SYSTEM_LOGS_ENDPOINTS = {
+  list: "/api/system-logs",
+  clear: "/api/system-logs",
+};
 
 /* ================= MOCK DATA ================= */
-const INITIAL_LOGS = [
+// NOTE: Backend connect ke baad ye mock data hata dena hai.
+// Ye sab remove hoga: BASE_LOGS, buildMockLogs(), INITIAL_LOGS
+const BASE_LOGS = [
   {
     date: "2026-01-01",
     time: "08:30:00",
@@ -70,6 +79,38 @@ const INITIAL_LOGS = [
   },
 ];
 
+function buildMockLogs() {
+  const extraLogs = [];
+  const sources = ["SAM.gov", "DOT Portal", "VA Procurement", "EPA Portal"];
+  const statuses = ["Success", "Warning", "Error", "Info"];
+  const messages = {
+    Success: "Sync completed successfully",
+    Warning: "Partial sync - some items skipped",
+    Error: "Sync failed - retry scheduled",
+    Info: "Background sync running",
+  };
+
+  for (let i = 0; i < 60; i += 1) {
+    const day = String((i % 28) + 1).padStart(2, "0");
+    const hour = String((8 + (i % 12)) % 24).padStart(2, "0");
+    const minute = String((i * 7) % 60).padStart(2, "0");
+    const status = statuses[i % statuses.length];
+    const source = sources[i % sources.length];
+
+    extraLogs.push({
+      date: `2026-01-${day}`,
+      time: `${hour}:${minute}:00`,
+      source,
+      status,
+      message: messages[status],
+    });
+  }
+
+  return [...BASE_LOGS, ...extraLogs];
+}
+
+const INITIAL_LOGS = buildMockLogs();
+
 function isValidStatus(status) {
   return VALID_STATUS.includes(status);
 }
@@ -117,39 +158,45 @@ export default function SystemLogs() {
   const [notifications, setNotifications] = useState([]);
   const [openNotif, setOpenNotif] = useState(false);
   const [toast, setToast] = useState(null);
-  // const [loading, setLoading] = useState(false);
-  // const [error, setError] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 25;
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
-  //   const fetchLogs = async () => {
-  //   try {
-  //     setLoading(true);
-  //     setError(null);
+  const fetchLogs = async () => {
+    if (USE_MOCK_LOGS) return;
+    try {
+      setLoading(true);
+      setError(null);
 
-  //     const res = await axios.get("/api/system-logs");
-  //     //  backend endpoint
+      const data = await requestWithRetry(() =>
+        requestJson(SYSTEM_LOGS_ENDPOINTS.list)
+      );
 
-  //     if (!Array.isArray(res.data)) {
-  //       throw new Error("Invalid logs format from server");
-  //     }
+      if (!Array.isArray(data)) {
+        throw new Error("Invalid logs format from server");
+      }
 
-  //     setLogs(res.data);
-  //   } catch (err) {
-  //     console.error(err);
-  //     setError(
-  //       err.response?.data?.message ||
-  //         err.message ||
-  //         "Failed to load system logs"
-  //     );
-  //   } finally {
-  //     setLoading(false);
-  //   }
-  // };
+      setLogs(data);
+    } catch (err) {
+      console.error(err);
+      setError(getErrorMessage(err, "Failed to load system logs"));
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  // useEffect(() => {
-  //   fetchLogs();
-  // }, []);
+  useEffect(() => {
+    fetchLogs();
+  }, []);
 
-  if (!Array.isArray(logs)) return;
+  if (!Array.isArray(logs)) {
+    return (
+      <div className="w-full bg-white px-6 py-10 text-sm text-red-700">
+        Unable to load system logs. Please try again.
+      </div>
+    );
+  }
 
   const filteredLogs = useMemo(() => {
     try {
@@ -197,10 +244,12 @@ export default function SystemLogs() {
 
   const exportLogs = () => {
     try {
+      setError(null);
       if (exportableLogs.length === 0) {
         alert("No valid logs to export");
         return;
       }
+      setLoading(true);
 
       const blob = new Blob([JSON.stringify(exportableLogs, null, 2)], {
         type: "application/json",
@@ -216,7 +265,10 @@ export default function SystemLogs() {
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error("Failed to export logs:", err);
+      setError("Failed to export logs. Please try again.");
       alert("Failed to export logs. See console for details.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -232,6 +284,17 @@ export default function SystemLogs() {
   }, [logs]);
 
   const clearAll = () => setLogs([]);
+  // TODO BACKEND: clear all logs ke liye axios call yaha lagega
+  // const clearAll = async () => {
+  //   try {
+  //     // backend endpoint
+  //     await axios.delete("/api/system-logs");
+  //     setLogs([]);
+  //   } catch (err) {
+  //     console.error(err);
+  //     alert("Failed to clear logs");
+  //   }
+  // };
 
   useEffect(() => {
     try {
@@ -265,6 +328,63 @@ export default function SystemLogs() {
     }
   }, [logs]);
   const unreadCount = notifications.filter((n) => !n.read).length;
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, statusFilter, selectedDate]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredLogs.length / pageSize));
+  const safePage = Math.min(currentPage, totalPages);
+  const startIndex = (safePage - 1) * pageSize;
+  const endIndex = startIndex + pageSize;
+  const paginatedLogs = filteredLogs.slice(startIndex, endIndex);
+
+  const goToPage = (page) => {
+    const next = Math.min(Math.max(page, 1), totalPages);
+    setCurrentPage(next);
+  };
+
+  const getPageItems = (total, current) => {
+    if (total <= 7) {
+      return Array.from({ length: total }, (_, idx) => ({
+        type: "page",
+        value: idx + 1,
+      }));
+    }
+
+    const items = [];
+    const pushPage = (value) => items.push({ type: "page", value });
+    const pushDots = (key) => items.push({ type: "dots", key });
+
+    if (current <= 3) {
+      pushPage(1);
+      pushPage(2);
+      pushPage(3);
+      pushDots("end");
+      pushPage(total);
+      return items;
+    }
+
+    if (current >= total - 2) {
+      pushPage(1);
+      pushDots("start");
+      pushPage(total - 2);
+      pushPage(total - 1);
+      pushPage(total);
+      return items;
+    }
+
+    pushPage(1);
+    pushDots("start");
+    pushPage(current - 1);
+    pushPage(current);
+    pushPage(current + 1);
+    pushDots("end");
+    pushPage(total);
+    return items;
+  };
+
+  const pageItems = getPageItems(totalPages, safePage);
 
   return (
     <div className="w-full bg-white">
@@ -349,18 +469,17 @@ export default function SystemLogs() {
 
       {/* ================= CONTENT ================= */}
       <main className="bg-[#f7fbfb] px-4 md:px-8 pb-8 pt-6 w-full">
-        {/* {loading && (
+        {loading && (
           <div className="mb-6 text-sm text-gray-500 flex items-center gap-2">
             <span className="animate-spin h-4 w-4 border-2 border-gray-300 border-t-transparent rounded-full"></span>
             Loading system logs...
           </div>
         )}
-        :
         {error && (
           <div className="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
             {error}
           </div>
-        )} */}
+        )}
         {/* ================= STATS ================= */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5 mb-8">
           <StatCard
@@ -453,7 +572,8 @@ export default function SystemLogs() {
         </div>
         {/* ================= TABLE ================= */}
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-          <table className="w-full text-sm">
+          <div className="max-h-[520px] overflow-y-auto">
+            <table className="w-full text-sm">
             {/* ===== TABLE HEADER (DESKTOP ONLY) ===== */}
             <thead className="hidden md:table-header-group bg-gray-50 text-gray-600">
               <tr>
@@ -466,10 +586,20 @@ export default function SystemLogs() {
 
             {/* ===== TABLE BODY ===== */}
             <tbody>
-              {filteredLogs.map((log, i) => (
-                <tr
-                  key={i}
-                  className="
+              {paginatedLogs.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="px-6 py-8">
+                    <EmptyState
+                      title="No logs found"
+                      message="Try adjusting filters or check back later."
+                    />
+                  </td>
+                </tr>
+              ) : (
+                paginatedLogs.map((log, i) => (
+                  <tr
+                    key={`${log.date}-${log.time}-${log.source}-${i}`}
+                    className="
             border-t
             md:table-row
             flex flex-col md:flex-row
@@ -477,50 +607,104 @@ export default function SystemLogs() {
             hover:bg-gray-50
             transition
           "
-                >
-                  {/* TIMESTAMP */}
-                  <td className="px-6 py-3 text-gray-500 whitespace-nowrap">
-                    <span className="md:hidden font-semibold text-gray-600">
-                      Timestamp:&nbsp;
-                    </span>
-                    <span>{log.date}</span>
-                    <span className="ml-4">{log.time}</span>
-                  </td>
+                  >
+                    {/* TIMESTAMP */}
+                    <td className="px-6 py-3 text-gray-500 whitespace-nowrap">
+                      <span className="md:hidden font-semibold text-gray-600">
+                        Timestamp:&nbsp;
+                      </span>
+                      <span>{log.date}</span>
+                      <span className="ml-4">{log.time}</span>
+                    </td>
 
-                  {/* SOURCE */}
-                  <td className="px-6 py-3 font-medium text-gray-800 text-left">
-                    <span className="md:hidden font-semibold text-gray-600">
-                      Source:&nbsp;
-                    </span>
-                    {log.source}
-                  </td>
+                    {/* SOURCE */}
+                    <td className="px-6 py-3 font-medium text-gray-800 text-left">
+                      <span className="md:hidden font-semibold text-gray-600">
+                        Source:&nbsp;
+                      </span>
+                      {log.source}
+                    </td>
 
-                  {/* STATUS */}
-                  <td className="px-6 py-3 text-center">
-                    <span className="md:hidden font-semibold text-gray-600">
-                      Status:&nbsp;
-                    </span>
-                    <StatusBadge status={log.status} />
-                  </td>
+                    {/* STATUS */}
+                    <td className="px-6 py-3 text-center">
+                      <span className="md:hidden font-semibold text-gray-600">
+                        Status:&nbsp;
+                      </span>
+                      <StatusBadge status={log.status} />
+                    </td>
 
-                  {/* MESSAGE */}
-                  <td className="px-6 py-3 text-gray-600 text-center">
-                    <span className="md:hidden font-semibold text-gray-600">
-                      Message:&nbsp;
-                    </span>
-                    {/* {log.message} */}
-                    {log.message || "—"}
-                    {log.source || "Unknown"}
-                  </td>
-                </tr>
-              ))}
+                    {/* MESSAGE */}
+                    <td className="px-6 py-3 text-gray-600 text-center">
+                      <span className="md:hidden font-semibold text-gray-600">
+                        Message:&nbsp;
+                      </span>
+                      {log.message || "—"}
+                      {log.source || "Unknown"}
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
-          </table>
+            </table>
+          </div>
+        </div>
+        {/* ===== PAGINATION ===== */}
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-4">
+          <div className="text-sm text-gray-500 font-medium">
+            Showing {filteredLogs.length === 0 ? 0 : startIndex + 1}-
+            {Math.min(endIndex, filteredLogs.length)} of{" "}
+            {filteredLogs.length} results
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => goToPage(safePage - 1)}
+              disabled={safePage === 1}
+              className="px-3 py-1.5 text-sm shadow-sm rounded border border-gray-200 bg-white hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Prev
+            </button>
+            <div className="flex items-center gap-1">
+              {pageItems.map((item) => {
+                if (item.type === "dots") {
+                  return (
+                    <span
+                      key={item.key}
+                      className="w-8 h-8 text-xs text-gray-500 flex items-center justify-center"
+                    >
+                      ...
+                    </span>
+                  );
+                }
+
+                const page = item.value;
+                return (
+                  <button
+                    key={page}
+                    onClick={() => goToPage(page)}
+                    className={`w-8 h-8 text-xs rounded border ${
+                      page === safePage
+                        ? "bg-indigo-600 text-white border-gray-900"
+                        : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+                    }`}
+                  >
+                    {page}
+                  </button>
+                );
+              })}
+            </div>
+            <button
+              onClick={() => goToPage(safePage + 1)}
+              disabled={safePage === totalPages}
+              className="px-3 py-1.5 text-sm shadow-sm rounded border border-gray-200 bg-white hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Next
+            </button>
+          </div>
         </div>
         {/* ===== FOOTER TEXT ===== */}
-        <div className="px-2 py-4 text-sm text-gray-500 font-medium">
+        {/* <div className="px-2 py-4 text-sm text-gray-500 font-medium">
           Showing {filteredLogs.length} of {logs.length} logs
-        </div>
+        </div> */}
       </main>
       {toast && (
         <div className="fixed bottom-6 right-6 bg-white border shadow-lg rounded-lg px-4 py-3 flex gap-3 items-start z-50">

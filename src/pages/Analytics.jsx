@@ -1,4 +1,5 @@
-import React,{ useState } from "react";
+import React,{ useEffect, useRef, useState } from "react";
+import { getErrorMessage, requestJson, requestWithRetry } from "../utils/api";
 
 import {
   Bell,
@@ -8,8 +9,10 @@ import {
   TrendingUp,
   BarChart3,
   ExternalLink,
+  X,
 } from "lucide-react";
 
+// NOTE BACKEND: mock notifications ko backend se replace karna hai
 const initialNotifications = [
   {
     id: 1,
@@ -71,9 +74,17 @@ const stats = [
   },
 ];
 
+const USE_MOCK_ANALYTICS = true; // TODO BACKEND: API live hote hi false, mock hata dena
+const ANALYTICS_ENDPOINTS = {
+  refresh: "/api/analytics/refresh", // TODO BACKEND: yahi endpoint use hoga
+};
+
 export default function AnalyticsDashboard() {
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState(initialNotifications);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const notificationMenuRef = useRef(null);
 
   // const openPowerBI = () => {
   //   try {
@@ -104,6 +115,8 @@ export default function AnalyticsDashboard() {
       );
 
       if (alreadyRefreshing) return;
+      setLoading(true);
+      setError(null);
 
       //  show refreshing notification
       setNotifications((prev) => [
@@ -117,28 +130,73 @@ export default function AnalyticsDashboard() {
         ...prev,
       ]);
 
-      //  simulate API call
-      setTimeout(() => {
-        setNotifications((prev) => {
-          // remove "in progress"
-          const filtered = prev.filter(
-            (n) => n.message !== "Data refresh in progress"
-          );
+      if (USE_MOCK_ANALYTICS) {
+        //  simulate API call
+        setTimeout(() => {
+          setNotifications((prev) => {
+            // remove "in progress"
+            const filtered = prev.filter(
+              (n) => n.message !== "Data refresh in progress"
+            );
 
-          return [
+            return [
+              {
+                id: Date.now() + 1,
+                type: "success",
+                message: "Data refreshed successfully",
+                time: "Just now",
+                read: false,
+              },
+              ...filtered,
+            ];
+          });
+          setLoading(false);
+        }, 2000);
+        return;
+      }
+
+      // TODO BACKEND: real refresh call yaha se hoga
+      requestWithRetry(() =>
+        requestJson(ANALYTICS_ENDPOINTS.refresh, { method: "POST" })
+      )
+        .then(() => {
+          setNotifications((prev) => {
+            const filtered = prev.filter(
+              (n) => n.message !== "Data refresh in progress"
+            );
+            return [
+              {
+                id: Date.now() + 1,
+                type: "success",
+                message: "Data refreshed successfully",
+                time: "Just now",
+                read: false,
+              },
+              ...filtered,
+            ];
+          });
+        })
+        .catch((error) => {
+          console.error("Refresh failed:", error);
+          setError(getErrorMessage(error, "Failed to refresh analytics data."));
+          setNotifications((prev) => [
             {
-              id: Date.now() + 1,
-              type: "success",
-              message: "Data refreshed successfully",
+              id: Date.now() + 2,
+              type: "error",
+              message: "Failed to refresh data",
               time: "Just now",
               read: false,
             },
-            ...filtered,
-          ];
+            ...prev,
+          ]);
+        })
+        .finally(() => {
+          setLoading(false);
         });
-      }, 2000);
     } catch (error) {
       console.error("Refresh failed:", error);
+      setError("Failed to refresh analytics data.");
+      setLoading(false);
       setNotifications((prev) => [
         {
           id: Date.now() + 2,
@@ -152,10 +210,51 @@ export default function AnalyticsDashboard() {
     }
   };
 
+  useEffect(() => {
+    if (!open) return;
+
+    const handleClickOutside = (event) => {
+      if (
+        notificationMenuRef.current &&
+        !notificationMenuRef.current.contains(event.target)
+      ) {
+        setOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
   const unreadCount = notifications.filter((n) => !n.read).length;
 
   const markAllRead = () => {
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+  };
+
+  const clearNotifications = () => {
+    setNotifications([]);
+  };
+
+  const handleNotificationClick = (id) => {
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, read: true } : n))
+    );
+  };
+
+  const handleRemoveNotification = (id) => {
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
   };
 
   return (
@@ -171,7 +270,7 @@ export default function AnalyticsDashboard() {
           </p>
         </div>
         {/* <Bell className="text-gray-500" /> */}
-        <div className="relative">
+        <div className="relative" ref={notificationMenuRef}>
           <button onClick={() => setOpen(!open)} className="relative">
             <Bell className="text-gray-600" />
 
@@ -188,14 +287,30 @@ export default function AnalyticsDashboard() {
               {/* HEADER */}
               <div className="flex items-center justify-between px-4 py-3 border-b">
                 <p className="font-semibold text-gray-800">Notifications</p>
-                {unreadCount > 0 && (
+                <div className="flex items-center gap-2">
                   <button
                     onClick={markAllRead}
-                    className="text-xs text-blue-600 hover:underline"
+                    disabled={unreadCount === 0}
+                    className={`text-xs ${
+                      unreadCount === 0
+                        ? "text-gray-300 cursor-not-allowed"
+                        : "text-blue-600 hover:underline"
+                    }`}
                   >
-                    Mark all as read
+                    Mark all
                   </button>
-                )}
+                  <button
+                    onClick={clearNotifications}
+                    disabled={notifications.length === 0}
+                    className={`text-xs ${
+                      notifications.length === 0
+                        ? "text-gray-300 cursor-not-allowed"
+                        : "text-red-500 hover:underline"
+                    }`}
+                  >
+                    Clear
+                  </button>
+                </div>
               </div>
 
               {/* LIST */}
@@ -208,6 +323,7 @@ export default function AnalyticsDashboard() {
                   notifications.map((n) => (
                     <div
                       key={n.id}
+                      onClick={() => handleNotificationClick(n.id)}
                       className={`px-4 py-3 border-b last:border-b-0 flex gap-3 ${
                         !n.read ? "bg-blue-50" : ""
                       }`}
@@ -228,7 +344,7 @@ export default function AnalyticsDashboard() {
                         )}
                       </div>
 
-                      <div>
+                      <div className="flex-1">
                         <p className="text-sm text-gray-800">
                           {n.message || "No message available"}
                         </p>
@@ -236,6 +352,17 @@ export default function AnalyticsDashboard() {
                           {n.time || "Just now"}
                         </p>
                       </div>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleRemoveNotification(n.id);
+                        }}
+                        className="text-gray-400 hover:text-red-500"
+                        title="Remove notification"
+                      >
+                        <X size={12} />
+                      </button>
                     </div>
                   ))
                 )}
@@ -244,6 +371,18 @@ export default function AnalyticsDashboard() {
           )}
         </div>
       </header>
+
+      {loading && (
+        <div className="mx-6 mt-4 text-sm text-gray-500 flex items-center gap-2">
+          <span className="animate-spin h-4 w-4 border-2 border-gray-300 border-t-transparent rounded-full"></span>
+          Loading analytics...
+        </div>
+      )}
+      {error && (
+        <div className="mx-6 mt-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+          {error}
+        </div>
+      )}
 
       <main className="p-6 space-y-6">
         {/* POWER BI STATUS */}
@@ -403,9 +542,9 @@ export default function AnalyticsDashboard() {
       </main>
 
       {/* FOOTER */}
-      <footer className="text-center text-xs text-gray-400 py-4">
+      {/* <footer className="text-center text-xs text-gray-400 py-4">
         © 2026 Your Company. All rights reserved.
-      </footer>
+      </footer> */}
     </div>
   );
 }

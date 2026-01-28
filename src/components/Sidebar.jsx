@@ -1,5 +1,5 @@
-import React from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import React, { useEffect, useState } from "react";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
   FileText,
@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 
 const menu = [
-  { name: "Dashboard", path: "/", icon: LayoutDashboard },
+  { name: "Dashboard", path: "/dashboard", icon: LayoutDashboard },
   { name: "Tenders", path: "/tenders", icon: FileText },
   { name: "Keywords", path: "/keywords", icon: Search },
   { name: "Sources", path: "/sources", icon: Globe },
@@ -22,8 +22,85 @@ const menu = [
   { name: "System Logs", path: "/system-logs", icon: ScrollText }
 ];
 
-export default function Sidebar() {
+export default function Sidebar({
+  headerTitle = "Tender Intel",
+  headerSubtitle = "Intelligent System"
+}) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [profilePhoto, setProfilePhoto] = useState(null);
+  const [profileName, setProfileName] = useState("Gaurav");
+  const [profileEmail, setProfileEmail] = useState("gauravkumar@gmail.com");
+  const [headerTitleText, setHeaderTitleText] = useState(headerTitle);
+  const [headerSubtitleText, setHeaderSubtitleText] = useState(headerSubtitle);
+
+  useEffect(() => {
+    const readProfilePhoto = () => {
+      const storedPhoto = localStorage.getItem("profilePhoto");
+      setProfilePhoto(storedPhoto || null);
+    };
+
+    readProfilePhoto();
+    window.addEventListener("profilePhotoUpdated", readProfilePhoto);
+    window.addEventListener("storage", readProfilePhoto);
+
+    return () => {
+      window.removeEventListener("profilePhotoUpdated", readProfilePhoto);
+      window.removeEventListener("storage", readProfilePhoto);
+    };
+  }, []);
+
+  useEffect(() => {
+    const readProfileInfo = () => {
+      const storedName = localStorage.getItem("profileName");
+      const storedEmail = localStorage.getItem("profileEmail");
+      if (storedName) setProfileName(storedName);
+      if (storedEmail) setProfileEmail(storedEmail);
+    };
+
+    readProfileInfo();
+    window.addEventListener("profileInfoUpdated", readProfileInfo);
+    window.addEventListener("storage", readProfileInfo);
+
+    return () => {
+      window.removeEventListener("profileInfoUpdated", readProfileInfo);
+      window.removeEventListener("storage", readProfileInfo);
+    };
+  }, []);
+
+  useEffect(() => {
+    const storedTitle = localStorage.getItem("sidebarHeaderTitle");
+    const storedSubtitle = localStorage.getItem("sidebarHeaderSubtitle");
+
+    setHeaderTitleText(storedTitle || headerTitle);
+    setHeaderSubtitleText(storedSubtitle || headerSubtitle);
+  }, [headerTitle, headerSubtitle]);
+
+  const handleEditHeader = () => {
+    const nextTitle = window.prompt("Sidebar title", headerTitleText);
+    if (nextTitle !== null) {
+      const trimmedTitle = nextTitle.trim();
+      const finalTitle = trimmedTitle || headerTitle;
+      setHeaderTitleText(finalTitle);
+      localStorage.setItem("sidebarHeaderTitle", finalTitle);
+    }
+
+    const nextSubtitle = window.prompt("Sidebar subtitle", headerSubtitleText);
+    if (nextSubtitle !== null) {
+      const trimmedSubtitle = nextSubtitle.trim();
+      const finalSubtitle = trimmedSubtitle || headerSubtitle;
+      setHeaderSubtitleText(finalSubtitle);
+      localStorage.setItem("sidebarHeaderSubtitle", finalSubtitle);
+    }
+  };
+
+  const handleProfileToggle = () => {
+    if (location.pathname === "/profile") {
+      navigate("/dashboard");
+      return;
+    }
+    navigate("/profile");
+  };
 
   return (
     <aside className="fixed left-0 top-0 h-screen w-64 bg-[#0b1222] text-white flex flex-col">
@@ -49,14 +126,19 @@ export default function Sidebar() {
             </svg>
           </div>
 
-          <div>
+          <button
+            type="button"
+            onClick={handleEditHeader}
+            className="text-left hover:text-red-400 transition"
+            aria-label="Edit sidebar header"
+          >
             <p className="text-[15px] font-semibold tracking-wide">
-              Tender Intel
+              {headerTitleText}
             </p>
             <p className="text-[12px] text-gray-400">
-              Intelligent System
+              {headerSubtitleText}
             </p>
-          </div>
+          </button>
         </div>
       </div>
 
@@ -108,27 +190,38 @@ export default function Sidebar() {
       {/* ================= FOOTER ================= */}
       <div className="p-4 border-t border-white/10">
         <button
-          onClick={() => navigate("/profile")}
+          onClick={handleProfileToggle}
           className="flex items-center gap-3 w-full hover:bg-white/5 p-2 rounded-xl transition"
         >
-          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#4f8cff] to-[#2563eb] flex items-center justify-center text-white font-semibold shadow">
-            Y
-          </div>
+          {profilePhoto ? (
+            <img
+              src={profilePhoto}
+              alt="Profile"
+              className="w-9 h-9 rounded-full object-cover shadow"
+            />
+          ) : (
+            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#4f8cff] to-[#2563eb] flex items-center justify-center text-white font-semibold shadow">
+              G
+            </div>
+          )}
           <div className="text-left">
-            <p className="text-sm font-medium">Yashika</p>
+            <p className="text-sm font-medium">{profileName}</p>
             <p className="text-xs text-gray-400">
-              yashikabawra@gmail.com
+              {profileEmail}
             </p>
           </div>
         </button>
 
         {/* SETTINGS & LOGOUT */}
-        <div className="flex justify-between mt-4 px-2 text-[12px] text-gray-400">
-          <button className="flex items-center gap-1 hover:text-[#4f8cff] transition">
+        <div className="flex items-center justify-center mt-4 px-2 text-[12px] text-gray-400">
+          {/* <button className="flex items-center gap-1 hover:text-[#4f8cff] transition">
             <Settings size={14} />
             Settings
-          </button>
-          <button className="flex items-center gap-1 hover:text-red-400 transition">
+          </button> */}
+          <button
+            onClick={() => navigate("/login")}
+            className="flex items-center gap-1 hover:text-red-400 transition"
+          >
             <LogOut size={14} />
             Logout
           </button>
