@@ -16,6 +16,7 @@ import Analytics from "./pages/Analytics";
 import Sources from "./pages/Sources";
 import SystemLogs from "./pages/SystemLogs";
 import MyProfile from "./pages/MyProfile";
+import VerifyEmail from "./pages/VerifyEmail";
 
 /* =========================
    DASHBOARD LAYOUT
@@ -93,9 +94,18 @@ function DashboardLayout() {
 export default function App() {
   return (
     <Routes>
+
+      {/* Auth */}
       <Route path="/" element={<Login />} />
       <Route path="/login" element={<Login />} />
+
+      {/* Email Verification */}
+      <Route path="/verify-email" element={<VerifyEmail />} />
+
+      {/* Dashboard (Protected Area) */}
       <Route path="/*" element={<DashboardLayout />} />
+
     </Routes>
   );
 }
+

@@ -1,16 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { Calendar, Mail, Save, User, Lock, Upload, X } from "lucide-react";
-import { getErrorMessage, requestJson, requestWithRetry } from "../utils/api";
 
-const USE_MOCK_PROFILE = true;
-const PROFILE_ENDPOINTS = {
-  fetch: "/api/user/profile",
-  update: "/api/user/profile",
-  password: "/api/user/change-password",
-};
+// API Configuration
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
 
 export default function ProfilePage() {
-  // Simulating data that would come from backend API
   const [userData, setUserData] = useState({
     id: null,
     fullName: "",
@@ -19,7 +13,8 @@ export default function ProfilePage() {
     avatar: "",
     role: "",
     joinedDate: "",
-    emailVerified: false
+    emailVerified: false,
+    profilePicture: null
   });
 
   const [personalInfo, setPersonalInfo] = useState({
@@ -34,85 +29,90 @@ export default function ProfilePage() {
     confirmPassword: ""
   });
 
+  const [emailInfo, setEmailInfo] = useState({
+    newEmail: "",
+    currentPassword: ""
+  });
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [showPhotoMenu, setShowPhotoMenu] = useState(false);
-  const [hasCustomPhoto, setHasCustomPhoto] = useState(false);
   const [photoPreview, setPhotoPreview] = useState(null);
+  const [successMessage, setSuccessMessage] = useState(null);
 
-  // Simulating API fetch on component mount
+  // Fetch user data on component mount
   useEffect(() => {
     fetchUserData();
   }, []);
 
-  useEffect(() => {
-    const storedName = localStorage.getItem("profileName");
-    const storedEmail = localStorage.getItem("profileEmail");
-    if (storedName || storedEmail) {
-      setUserData((prev) => ({
-        ...prev,
-        fullName: storedName || prev.fullName,
-        email: storedEmail || prev.email,
-        avatar: (storedName || prev.fullName)?.charAt(0)?.toUpperCase() || "U"
-      }));
-      setPersonalInfo((prev) => ({
-        ...prev,
-        fullName: storedName || prev.fullName,
-        email: storedEmail || prev.email
-      }));
-    }
-  }, []);
+  const getAuthToken = () => {
+    return localStorage.getItem("access_token");
+  };
 
-  useEffect(() => {
-    const storedPhoto = localStorage.getItem("profilePhoto");
-    if (storedPhoto) {
-      setPhotoPreview(storedPhoto);
-      setHasCustomPhoto(true);
-    }
-  }, []);
-
-  // This function would call your backend API
   const fetchUserData = async () => {
     setLoading(true);
     setError(null);
+    
     try {
-      const mockData = {
-        id: 1,
-        fullName: "Vr6295836",
-        email: "vr6295836@gmail.com",
-        phone: "",
-        avatar: "V",
-        role: "Admin",
-        joinedDate: "January 2024",
-        emailVerified: true
-      };
+      const token = getAuthToken();
+      if (!token) {
+        setError("Please log in to view your profile");
+        return;
+      }
 
-      const data = USE_MOCK_PROFILE
-        ? mockData
-        : await requestWithRetry(() => requestJson(PROFILE_ENDPOINTS.fetch));
+      const response = await fetch(`${API_BASE_URL}/api/auth/me`, {
+        method: "GET",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      });
 
-      const storedName = localStorage.getItem("profileName");
-      const storedEmail = localStorage.getItem("profileEmail");
-      const finalName = storedName || mockData.fullName;
-      const finalEmail = storedEmail || mockData.email;
+      if (!response.ok) {
+        if (response.status === 401) {
+          localStorage.removeItem("access_token");
+          localStorage.removeItem("refresh_token");
+          window.location.href = "/login";
+          return;
+        }
+        throw new Error("Failed to fetch profile");
+      }
+
+      const data = await response.json();
+      console.log("Fetched user data:", data);
+
+      const joinedDate = new Date(data.created_at).toLocaleDateString('en-US', { 
+        month: 'long', 
+        year: 'numeric' 
+      });
 
       setUserData({
-        ...mockData,
-        fullName: finalName,
-        email: finalEmail,
-        avatar: finalName?.charAt(0)?.toUpperCase() || "U"
+        id: data.id,
+        fullName: data.full_name || "",
+        email: data.email || "",
+        phone: data.phone_number || "",
+        avatar: data.full_name?.charAt(0)?.toUpperCase() || "U",
+        role: data.is_superuser ? "Admin" : "User",
+        joinedDate: joinedDate,
+        emailVerified: data.is_verified,
+        profilePicture: data.profile_picture
       });
+
       setPersonalInfo({
-        fullName: finalName,
-        email: finalEmail,
-        phone: mockData.phone
+        fullName: data.full_name || "",
+        email: data.email || "",
+        phone: data.phone_number || ""
       });
-      localStorage.setItem("profileName", finalName || "");
-      localStorage.setItem("profileEmail", finalEmail || "");
-      window.dispatchEvent(new Event("profileInfoUpdated"));
+
+      // Set profile picture directly (it's already a full URL from backend)
+      if (data.profile_picture) {
+        console.log("Setting photo preview:", data.profile_picture);
+        setPhotoPreview(`${data.profile_picture}?t=${Date.now()}`);
+      }
+
     } catch (error) {
       console.error("Error fetching user data:", error);
-      setError(getErrorMessage(error, "Unable to load profile details right now."));
+      setError("Unable to load profile details. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -123,6 +123,8 @@ export default function ProfilePage() {
       ...personalInfo,
       [e.target.name]: e.target.value
     });
+    setError(null);
+    setSuccessMessage(null);
   };
 
   const handleSecurityChange = (e) => {
@@ -130,113 +132,308 @@ export default function ProfilePage() {
       ...securityInfo,
       [e.target.name]: e.target.value
     });
+    setError(null);
+    setSuccessMessage(null);
+  };
+
+  const handleEmailChange = (e) => {
+    setEmailInfo({
+      ...emailInfo,
+      [e.target.name]: e.target.value
+    });
+    setError(null);
+    setSuccessMessage(null);
   };
 
   const handleSaveChanges = async () => {
     setLoading(true);
     setError(null);
+    setSuccessMessage(null);
+
     try {
-      if (!USE_MOCK_PROFILE) {
-        await requestWithRetry(() =>
-          requestJson(PROFILE_ENDPOINTS.update, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(personalInfo),
-          })
-        );
-      }
+      const token = getAuthToken();
       
-      // Update local state after successful save
+      const response = await fetch(`${API_BASE_URL}/api/auth/me`, {
+        method: "PATCH",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          full_name: personalInfo.fullName.trim(),
+          phone_number: personalInfo.phone.trim() || null,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || "Failed to update profile");
+      }
+
+      // Update local state
       setUserData({ 
         ...userData, 
-        ...personalInfo,
-        avatar: personalInfo.fullName?.charAt(0).toUpperCase() || "U"
+        fullName: data.full_name,
+        phone: data.phone_number || "",
+        avatar: data.full_name?.charAt(0)?.toUpperCase() || "U"
       });
-      localStorage.setItem("profileName", personalInfo.fullName || "");
-      localStorage.setItem("profileEmail", personalInfo.email || "");
+
+      setSuccessMessage("Profile updated successfully!");
+      
+      // Dispatch event for navbar update
       window.dispatchEvent(new Event("profileInfoUpdated"));
-      alert("Changes saved successfully!");
+
     } catch (error) {
       console.error("Error saving changes:", error);
-      setError(getErrorMessage(error, "Failed to save changes."));
-      alert("Failed to save changes");
+      setError(error.message || "Failed to save changes. Please try again.");
     } finally {
       setLoading(false);
     }
   };
 
   const handleUpdatePassword = async () => {
+    setError(null);
+    setSuccessMessage(null);
+
+    // Validation
+    if (!securityInfo.currentPassword) {
+      setError("Please enter your current password");
+      return;
+    }
+
+    if (!securityInfo.newPassword || !securityInfo.confirmPassword) {
+      setError("Please enter and confirm your new password");
+      return;
+    }
+
     if (securityInfo.newPassword !== securityInfo.confirmPassword) {
-      alert("Passwords do not match!");
+      setError("New passwords do not match!");
       return;
     }
 
     if (securityInfo.newPassword.length < 8) {
-      alert("Password must be at least 8 characters long!");
+      setError("Password must be at least 8 characters long");
+      return;
+    }
+
+    if (!/[A-Z]/.test(securityInfo.newPassword)) {
+      setError("Password must contain at least one uppercase letter");
+      return;
+    }
+
+    if (!/[a-z]/.test(securityInfo.newPassword)) {
+      setError("Password must contain at least one lowercase letter");
+      return;
+    }
+
+    if (!/[0-9]/.test(securityInfo.newPassword)) {
+      setError("Password must contain at least one number");
       return;
     }
 
     setLoading(true);
-    setError(null);
+
     try {
-      if (!USE_MOCK_PROFILE) {
-        await requestWithRetry(() =>
-          requestJson(PROFILE_ENDPOINTS.password, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              currentPassword: securityInfo.currentPassword,
-              newPassword: securityInfo.newPassword,
-            }),
-          })
-        );
-      }
+      const token = getAuthToken();
       
-      // Clear password fields after successful update
+      const response = await fetch(`${API_BASE_URL}/api/auth/update-password`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          current_password: securityInfo.currentPassword,
+          new_password: securityInfo.newPassword,
+          confirm_password: securityInfo.confirmPassword,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || "Failed to update password");
+      }
+
+      // Clear password fields
       setSecurityInfo({
         currentPassword: "",
         newPassword: "",
         confirmPassword: ""
       });
-      alert("Password updated successfully!");
+
+      setSuccessMessage("Password updated successfully!");
+
     } catch (error) {
       console.error("Error updating password:", error);
-      setError(getErrorMessage(error, "Failed to update password."));
-      alert("Failed to update password");
+      setError(error.message || "Failed to update password. Please try again.");
     } finally {
       setLoading(false);
     }
   };
 
-  const handlePhotoUpload = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      // Create preview URL
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setPhotoPreview(reader.result);
-        setHasCustomPhoto(true);
-        setShowPhotoMenu(false);
-        localStorage.setItem("profilePhoto", reader.result);
-        window.dispatchEvent(new Event("profilePhotoUpdated"));
-        
-        // Here you would upload to your backend
-        console.log("Uploading photo:", file);
-        alert("Photo uploaded successfully!");
-      };
-      reader.readAsDataURL(file);
+  const handleUpdateEmail = async () => {
+    setError(null);
+    setSuccessMessage(null);
+
+    if (!emailInfo.newEmail || !emailInfo.currentPassword) {
+      setError("Please provide both new email and current password");
+      return;
+    }
+
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(emailInfo.newEmail)) {
+      setError("Please enter a valid email address");
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const token = getAuthToken();
+      
+      const response = await fetch(`${API_BASE_URL}/api/auth/update-email`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          new_email: emailInfo.newEmail,
+          current_password: emailInfo.currentPassword,
+        }),
+      });
+
+      const data = await response.json();
+      console.log("Email update response:", data);
+
+      if (!response.ok) {
+        throw new Error(data.detail || "Failed to update email");
+      }
+
+      setEmailInfo({ newEmail: "", currentPassword: "" });
+      setSuccessMessage("Email updated! Please check your inbox to verify your new email address. You will be logged out in 3 seconds...");
+      
+      // Logout after 3 seconds
+      setTimeout(() => {
+        localStorage.removeItem("access_token");
+        localStorage.removeItem("refresh_token");
+        window.location.href = "/login";
+      }, 3000);
+
+    } catch (error) {
+      console.error("Error updating email:", error);
+      setError(error.message || "Failed to update email. Please try again.");
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleRemovePhoto = () => {
-    // Handle photo removal logic here
-    console.log("Removing photo");
-    setPhotoPreview(null);
-    setHasCustomPhoto(false);
-    setShowPhotoMenu(false);
-    localStorage.removeItem("profilePhoto");
-    window.dispatchEvent(new Event("profilePhotoUpdated"));
-    alert("Photo removed successfully!");
+  const handlePhotoUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      setError("Image size must be less than 5MB");
+      return;
+    }
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      setError("Please upload an image file");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setSuccessMessage(null);
+
+    try {
+      const token = getAuthToken();
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch(`${API_BASE_URL}/api/auth/me/profile-picture`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+        },
+        body: formData,
+      });
+
+      const data = await response.json();
+      console.log("Photo upload response:", data);
+
+      if (!response.ok) {
+        throw new Error(data.detail || "Failed to upload photo");
+      }
+
+      // Update both photoPreview and userData
+      if (data.profile_picture) {
+        console.log("New profile picture URL:", data.profile_picture);
+        setPhotoPreview(`${data.profile_picture}?t=${Date.now()}`);
+        setUserData({
+          ...userData,
+          profilePicture: data.profile_picture
+        });
+      }
+
+      setShowPhotoMenu(false);
+      setSuccessMessage("Photo uploaded successfully!");
+      
+      // Dispatch event for navbar update
+      window.dispatchEvent(new Event("profilePhotoUpdated"));
+
+    } catch (error) {
+      console.error("Error uploading photo:", error);
+      setError(error.message || "Failed to upload photo. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRemovePhoto = async () => {
+    setLoading(true);
+    setError(null);
+    setSuccessMessage(null);
+
+    try {
+      const token = getAuthToken();
+      
+      const response = await fetch(`${API_BASE_URL}/api/auth/me/profile-picture`, {
+        method: "DELETE",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+        },
+      });
+
+      const data = await response.json();
+      console.log("Photo remove response:", data);
+
+      if (!response.ok) {
+        throw new Error(data.detail || "Failed to remove photo");
+      }
+
+      setPhotoPreview(null);
+      setUserData({
+        ...userData,
+        profilePicture: null
+      });
+      setShowPhotoMenu(false);
+      setSuccessMessage("Photo removed successfully!");
+      
+      // Dispatch event for navbar update
+      window.dispatchEvent(new Event("profilePhotoUpdated"));
+
+    } catch (error) {
+      console.error("Error removing photo:", error);
+      setError(error.message || "Failed to remove photo. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (loading && !userData.id) {
@@ -260,12 +457,19 @@ export default function ProfilePage() {
         </div>
       </div>
 
-      <div className="max-w-6xl mx-auto px-8">
+      <div className="max-w-6xl mx-auto px-8 pb-12">
         {error && (
           <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             {error}
           </div>
         )}
+        
+        {successMessage && (
+          <div className="mb-6 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+            {successMessage}
+          </div>
+        )}
+
         <div className="grid md:grid-cols-3 gap-6">
           {/* Left Sidebar Card */}
           <div className="md:col-span-1">
@@ -278,17 +482,22 @@ export default function ProfilePage() {
                       src={photoPreview} 
                       alt="Profile" 
                       className="w-28 h-28 rounded-full object-cover shadow-lg"
+                      onError={(e) => {
+                        console.error("Image failed to load:", photoPreview);
+                        e.target.onerror = null;
+                      }}
                     />
                   ) : (
                     <div className="w-28 h-28 rounded-full bg-[#2b7fff] flex items-center justify-center text-white text-3xl font-bold shadow-lg">
-                      {userData.avatar || userData.fullName?.charAt(0) || "U"}
+                      {userData.avatar}
                     </div>
                   )}
                   
                   {/* Photo Upload Button */}
                   <button 
                     onClick={() => setShowPhotoMenu(!showPhotoMenu)}
-                    className="absolute bottom-0 right-0 bg-[#2b7fff] p-2 rounded-full text-white hover:bg-[#1a6eef] shadow-lg transition-all"
+                    disabled={loading}
+                    className="absolute bottom-0 right-0 bg-[#2b7fff] p-2 rounded-full text-white hover:bg-[#1a6eef] shadow-lg transition-all disabled:opacity-50"
                   >
                     <Upload className="w-4 h-4" />
                   </button>
@@ -304,12 +513,14 @@ export default function ProfilePage() {
                           accept="image/*" 
                           className="hidden" 
                           onChange={handlePhotoUpload}
+                          disabled={loading}
                         />
                       </label>
-                      {hasCustomPhoto && (
+                      {photoPreview && (
                         <button 
                           onClick={handleRemovePhoto}
-                          className="flex items-center gap-3 px-4 py-2 hover:bg-gray-50 w-full text-left transition-colors"
+                          disabled={loading}
+                          className="flex items-center gap-3 px-4 py-2 hover:bg-gray-50 w-full text-left transition-colors disabled:opacity-50"
                         >
                           <X className="w-4 h-4 text-red-600" />
                           <span className="text-sm text-red-600">Remove Photo</span>
@@ -329,11 +540,13 @@ export default function ProfilePage() {
               <div className="mt-6 pt-6 border-t border-gray-100 space-y-3">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-gray-600">Status</span>
-                  <span className="flex items-center gap-1 text-green-600 font-medium">
+                  <span className={`flex items-center gap-1 font-medium ${
+                    userData.emailVerified ? 'text-green-600' : 'text-yellow-600'
+                  }`}>
                     <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                     </svg>
-                    Verified
+                    {userData.emailVerified ? 'Verified' : 'Not Verified'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
@@ -367,13 +580,16 @@ export default function ProfilePage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Email Address</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Email Address
+                      <span className="text-xs text-gray-500 ml-2">(Read-only)</span>
+                    </label>
                     <input
                       type="email"
                       name="email"
                       value={personalInfo.email}
-                      onChange={handlePersonalInfoChange}
-                      className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
+                      disabled
+                      className="w-full px-4 py-2.5 border border-gray-200 rounded-lg bg-gray-50 text-gray-500 cursor-not-allowed outline-none"
                     />
                   </div>
                 </div>
@@ -385,7 +601,7 @@ export default function ProfilePage() {
                     value={personalInfo.phone}
                     onChange={handlePersonalInfoChange}
                     placeholder="Enter your phone number"
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[#2b7fff] focus:border-transparent outline-none transition"
                   />
                 </div>
                 <div className="pt-2">
@@ -394,20 +610,82 @@ export default function ProfilePage() {
                     disabled={loading}
                     className="w-full px-6 py-2.5 bg-[#2b7fff] text-white rounded-lg hover:bg-[#1a6eef] font-medium flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition"
                   >
-                    <Save className="w-4 h-4" />
-                    Update Information
+                    {loading ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                        Updating...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-4 h-4" />
+                        Update Information
+                      </>
+                    )}
                   </button>
                 </div>
               </div>
             </div>
 
-            {/* Privacy Settings Card */}
+            {/* Email Update Card */}
+            <div className="bg-white rounded-xl shadow-sm p-6">
+              <div className="flex items-center gap-2 mb-6">
+                <div className="p-2 bg-[#2b7fff]/10 rounded-lg">
+                  <Mail className="w-5 h-5 text-[#2b7fff]" />
+                </div>
+                <h3 className="text-lg font-semibold text-gray-900">Update Email Address</h3>
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">New Email Address</label>
+                  <input
+                    type="email"
+                    name="newEmail"
+                    value={emailInfo.newEmail}
+                    onChange={handleEmailChange}
+                    placeholder="Enter new email address"
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[#2b7fff] focus:border-transparent outline-none transition"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Current Password</label>
+                  <input
+                    type="password"
+                    name="currentPassword"
+                    value={emailInfo.currentPassword}
+                    onChange={handleEmailChange}
+                    placeholder="Enter current password to confirm"
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[#2b7fff] focus:border-transparent outline-none transition"
+                  />
+                </div>
+                <p className="text-xs text-gray-500">
+                  You will need to verify your new email address before you can log in with it.
+                </p>
+                <div className="pt-2">
+                  <button 
+                    onClick={handleUpdateEmail}
+                    disabled={loading}
+                    className="w-full px-6 py-2.5 bg-[#2b7fff] text-white rounded-lg hover:bg-[#1a6eef] font-medium flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                  >
+                    {loading ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                        Updating...
+                      </>
+                    ) : (
+                      "Update Email"
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Change Password Card */}
             <div className="bg-white rounded-xl shadow-sm p-6">
               <div className="flex items-center gap-2 mb-6">
                 <div className="p-2 bg-[#2b7fff]/10 rounded-lg">
                   <Lock className="w-5 h-5 text-[#2b7fff]" />
                 </div>
-                <h3 className="text-lg font-semibold text-gray-900">Privacy Settings</h3>
+                <h3 className="text-lg font-semibold text-gray-900">Change Password</h3>
               </div>
               <div className="space-y-4">
                 <div>
@@ -418,7 +696,7 @@ export default function ProfilePage() {
                     value={securityInfo.currentPassword}
                     onChange={handleSecurityChange}
                     placeholder="Enter current password"
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[#2b7fff] focus:border-transparent outline-none transition"
                   />
                 </div>
                 <div className="grid md:grid-cols-2 gap-4">
@@ -430,7 +708,7 @@ export default function ProfilePage() {
                       value={securityInfo.newPassword}
                       onChange={handleSecurityChange}
                       placeholder="Enter new password"
-                      className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
+                      className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[#2b7fff] focus:border-transparent outline-none transition"
                     />
                   </div>
                   <div>
@@ -441,17 +719,27 @@ export default function ProfilePage() {
                       value={securityInfo.confirmPassword}
                       onChange={handleSecurityChange}
                       placeholder="Confirm new password"
-                      className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
+                      className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[#2b7fff] focus:border-transparent outline-none transition"
                     />
                   </div>
                 </div>
+                <p className="text-xs text-gray-500">
+                  Password must be at least 8 characters with uppercase, lowercase, and number
+                </p>
                 <div className="pt-2">
                   <button 
                     onClick={handleUpdatePassword}
                     disabled={loading}
-                    className="w-full px-6 py-2.5 bg-[#2b7fff] text-white rounded-lg hover:bg-[#1a6eef] font-medium disabled:opacity-50 disabled:cursor-not-allowed transition"
+                    className="w-full px-6 py-2.5 bg-[#2b7fff] text-white rounded-lg hover:bg-[#1a6eef] font-medium flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition"
                   >
-                    Update Password
+                    {loading ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                        Updating...
+                      </>
+                    ) : (
+                      "Update Password"
+                    )}
                   </button>
                 </div>
               </div>
