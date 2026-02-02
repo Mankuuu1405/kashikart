@@ -29,42 +29,86 @@ export default function Sidebar({
   const navigate = useNavigate();
   const location = useLocation();
   const [profilePhoto, setProfilePhoto] = useState(null);
-  const [profileName, setProfileName] = useState("Gaurav");
-  const [profileEmail, setProfileEmail] = useState("gauravkumar@gmail.com");
+  const [profileName, setProfileName] = useState("");
+  const [profileEmail, setProfileEmail] = useState("");
   const [headerTitleText, setHeaderTitleText] = useState(headerTitle);
   const [headerSubtitleText, setHeaderSubtitleText] = useState(headerSubtitle);
 
+  // Fetch user data from API
   useEffect(() => {
-    const readProfilePhoto = () => {
-      const storedPhoto = localStorage.getItem("profilePhoto");
-      setProfilePhoto(storedPhoto || null);
+    const fetchUserData = async () => {
+      try {
+        const token = localStorage.getItem("access_token");
+        if (!token) {
+          navigate("/login");
+          return;
+        }
+
+        const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/auth/me`, {
+          headers: {
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "application/json"
+          }
+        });
+
+        if (!response.ok) {
+          if (response.status === 401) {
+            localStorage.removeItem("access_token");
+            navigate("/login");
+          }
+          throw new Error("Failed to fetch user data");
+        }
+
+        const userData = await response.json();
+        
+        setProfileName(userData.full_name || "User");
+        setProfileEmail(userData.email || "");
+        setProfilePhoto(userData.profile_picture || null);
+
+      } catch (error) {
+        console.error("Error fetching user data:", error);
+      }
     };
 
-    readProfilePhoto();
-    window.addEventListener("profilePhotoUpdated", readProfilePhoto);
-    window.addEventListener("storage", readProfilePhoto);
+    fetchUserData();
+  }, [navigate]);
+
+  // Listen for profile updates
+  useEffect(() => {
+    const handleProfileUpdate = () => {
+      // Re-fetch user data when profile is updated
+      const fetchUserData = async () => {
+        try {
+          const token = localStorage.getItem("access_token");
+          if (!token) return;
+
+          const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/auth/me`, {
+            headers: {
+              "Authorization": `Bearer ${token}`,
+              "Content-Type": "application/json"
+            }
+          });
+
+          if (response.ok) {
+            const userData = await response.json();
+            setProfileName(userData.full_name || "User");
+            setProfileEmail(userData.email || "");
+            setProfilePhoto(userData.profile_picture || null);
+          }
+        } catch (error) {
+          console.error("Error updating user data:", error);
+        }
+      };
+
+      fetchUserData();
+    };
+
+    window.addEventListener("profilePhotoUpdated", handleProfileUpdate);
+    window.addEventListener("profileInfoUpdated", handleProfileUpdate);
 
     return () => {
-      window.removeEventListener("profilePhotoUpdated", readProfilePhoto);
-      window.removeEventListener("storage", readProfilePhoto);
-    };
-  }, []);
-
-  useEffect(() => {
-    const readProfileInfo = () => {
-      const storedName = localStorage.getItem("profileName");
-      const storedEmail = localStorage.getItem("profileEmail");
-      if (storedName) setProfileName(storedName);
-      if (storedEmail) setProfileEmail(storedEmail);
-    };
-
-    readProfileInfo();
-    window.addEventListener("profileInfoUpdated", readProfileInfo);
-    window.addEventListener("storage", readProfileInfo);
-
-    return () => {
-      window.removeEventListener("profileInfoUpdated", readProfileInfo);
-      window.removeEventListener("storage", readProfileInfo);
+      window.removeEventListener("profilePhotoUpdated", handleProfileUpdate);
+      window.removeEventListener("profileInfoUpdated", handleProfileUpdate);
     };
   }, []);
 
@@ -100,6 +144,12 @@ export default function Sidebar({
       return;
     }
     navigate("/profile");
+  };
+
+  // Get first letter of name for avatar fallback
+  const getInitials = () => {
+    if (!profileName) return "U";
+    return profileName.charAt(0).toUpperCase();
   };
 
   return (
@@ -201,13 +251,13 @@ export default function Sidebar({
             />
           ) : (
             <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#4f8cff] to-[#2563eb] flex items-center justify-center text-white font-semibold shadow">
-              G
+              {getInitials()}
             </div>
           )}
           <div className="text-left">
-            <p className="text-sm font-medium">{profileName}</p>
+            <p className="text-sm font-medium">{profileName || "User"}</p>
             <p className="text-xs text-gray-400">
-              {profileEmail}
+              {profileEmail || ""}
             </p>
           </div>
         </button>

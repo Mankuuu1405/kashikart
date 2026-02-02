@@ -2,7 +2,6 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Eye, EyeOff } from "lucide-react";
 
-
 // API Configuration
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
 
@@ -201,7 +200,7 @@ function Login({ onNavigateToSignup, onNavigateToForgotPassword }) {
             <div className="relative">
               <input
                 type={showPassword ? "text" : "password"}
-                placeholder="••••••••"
+                placeholder="password"
                 value={password}
                 onChange={(e) => {
                   setPassword(e.target.value);
@@ -251,7 +250,7 @@ function Login({ onNavigateToSignup, onNavigateToForgotPassword }) {
 
 // ==================== FORGOT PASSWORD ====================
 function ForgotPassword({ onNavigateToLogin }) {
-  const [step, setStep] = useState(1); // 1: email, 2: otp, 3: new password
+  const [step, setStep] = useState(1);
   const [email, setEmail] = useState("");
   const [otp, setOtp] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -588,6 +587,15 @@ function Signup({ onNavigateToLogin }) {
   const [error, setError] = useState(null);
   const [fieldErrors, setFieldErrors] = useState({});
 
+  // STEP 1 — Password Rules State
+  const [passwordRules, setPasswordRules] = useState({
+    length: false,
+    upper: false,
+    lower: false,
+    number: false,
+    special: false,
+  });
+
   // Validate password strength
   const validatePassword = (pwd) => {
     const errors = [];
@@ -603,8 +611,49 @@ function Signup({ onNavigateToLogin }) {
     if (!/[0-9]/.test(pwd)) {
       errors.push("one number");
     }
+    if (!/[!@#$%^&*(),.?":{}|<>]/.test(pwd)) {
+      errors.push("one special character");
+    }
     return errors;
   };
+
+  // STEP 2 — Checker Function
+  const checkPassword = (pwd) => {
+    if (!pwd) {
+      setPasswordRules({
+        length: false,
+        upper: false,
+        lower: false,
+        number: false,
+        special: false,
+      });
+      return;
+    }
+
+    setPasswordRules({
+      length: pwd.length >= 8,
+      upper: /[A-Z]/.test(pwd),
+      lower: /[a-z]/.test(pwd),
+      number: /[0-9]/.test(pwd),
+      special: /[!@#$%^&*(),.?":{}|<>]/.test(pwd),
+    });
+  };
+
+  // Calculate password strength (0-3: weak, medium, strong)
+  const getPasswordStrength = () => {
+    if (!password) return 0;
+    
+    const rules = Object.values(passwordRules);
+    const satisfied = rules.filter(Boolean).length;
+    
+    if (satisfied <= 2) return 1; // Weak
+    if (satisfied <= 4) return 2; // Medium
+    return 3; // Strong
+  };
+
+  const passwordStrength = getPasswordStrength();
+  const strengthLabels = ["", "Weak", "Medium", "Strong"];
+  const strengthColors = ["", "bg-red-500", "bg-yellow-500", "bg-green-500"];
 
   const handleCreateAccount = async () => {
     setError(null);
@@ -703,9 +752,20 @@ function Signup({ onNavigateToLogin }) {
     }
   };
 
+  // STEP 6 — Compute "Is Password Valid"
+  const isPasswordValid =
+    passwordRules.length &&
+    passwordRules.upper &&
+    passwordRules.lower &&
+    passwordRules.number &&
+    passwordRules.special &&
+    password === confirmPassword &&
+    fullName.trim() &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
   // Handle Enter key press
   const handleKeyPress = (e) => {
-    if (e.key === "Enter") {
+    if (e.key === "Enter" && isPasswordValid && !loading) {
       handleCreateAccount();
     }
   };
@@ -827,10 +887,12 @@ function Signup({ onNavigateToLogin }) {
             <div className="relative">
               <input
                 type={showPassword ? "text" : "password"}
-                placeholder="••••••••"
+                placeholder="password"
                 value={password}
                 onChange={(e) => {
-                  setPassword(e.target.value);
+                  const value = e.target.value;
+                  setPassword(value);
+                  checkPassword(value);
                   if (fieldErrors.password) {
                     setFieldErrors({ ...fieldErrors, password: null });
                   }
@@ -850,12 +912,46 @@ function Signup({ onNavigateToLogin }) {
                 {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>
             </div>
-            {fieldErrors.password ? (
-              <p className="text-xs text-red-600 mt-1">{fieldErrors.password}</p>
-            ) : (
-              <p className="text-xs text-slate-500 mt-1">
-                Must be at least 8 characters with uppercase, lowercase, and number
-              </p>
+
+            {/* Password Strength Bar */}
+            {password && (
+              <div className="mt-3">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-medium text-slate-600">Password strength:</span>
+                  <span className={`text-xs font-semibold ${
+                    passwordStrength === 1 ? 'text-red-600' : 
+                    passwordStrength === 2 ? 'text-yellow-600' : 
+                    'text-green-600'
+                  }`}>
+                    {strengthLabels[passwordStrength]}
+                  </span>
+                </div>
+                <div className="flex gap-1 h-1.5 w-full">
+                  {[1, 2, 3].map((level) => (
+                    <div
+                      key={level}
+                      className={`flex-1 rounded-full transition-all duration-300 ${
+                        level <= passwordStrength ? strengthColors[passwordStrength] : 'bg-gray-200'
+                      }`}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* PASSWORD RULES */}
+            {password && (
+              <div className="mt-3 space-y-1.5">
+                <PasswordRule ok={passwordRules.length} text="At least 8 characters" />
+                <PasswordRule ok={passwordRules.upper} text="One uppercase letter" />
+                <PasswordRule ok={passwordRules.lower} text="One lowercase letter" />
+                <PasswordRule ok={passwordRules.number} text="One number" />
+                <PasswordRule ok={passwordRules.special} text="One special character" />
+              </div>
+            )}
+
+            {fieldErrors.password && (
+              <p className="text-xs text-red-600 mt-2">{fieldErrors.password}</p>
             )}
           </div>
 
@@ -865,7 +961,7 @@ function Signup({ onNavigateToLogin }) {
             <div className="relative">
               <input
                 type={showConfirmPassword ? "text" : "password"}
-                placeholder="••••••••"
+                placeholder="confirm password"
                 value={confirmPassword}
                 onChange={(e) => {
                   setConfirmPassword(e.target.value);
@@ -893,14 +989,27 @@ function Signup({ onNavigateToLogin }) {
                 {fieldErrors.confirmPassword || fieldErrors.confirm_password}
               </p>
             )}
+            {confirmPassword && (
+              password === confirmPassword ? (
+                <div className="mt-1 text-xs text-green-600 flex items-center gap-1">
+                  ✔ Passwords match
+                </div>
+              ) : (
+                <div className="mt-1 text-xs text-red-600">
+                  Passwords do not match
+                </div>
+              )
+            )}
           </div>
 
           {/* BUTTON */}
           <button 
             onClick={handleCreateAccount}
-            disabled={loading}
-            className={`w-full rounded-lg bg-blue-500 py-3 font-medium text-white transition mb-5 ${
-              loading ? "opacity-50 cursor-not-allowed" : "hover:bg-blue-600"
+            disabled={loading || !isPasswordValid}
+            className={`w-full rounded-lg py-3 font-medium text-white transition mb-5 ${
+              loading || !isPasswordValid
+                ? "bg-gray-400 cursor-not-allowed"
+                : "bg-blue-500 hover:bg-blue-600"
             }`}
           >
             {loading ? "Creating account..." : "Create account"}
@@ -968,6 +1077,22 @@ function FeatureItem({ text }) {
         </svg>
       </div>
       <p className="text-slate-300">{text}</p>
+    </div>
+  );
+}
+
+// PasswordRule Component with Animation
+function PasswordRule({ ok, text }) {
+  return (
+    <div
+      className={`flex items-center gap-2 text-xs transition-all duration-300 ${
+        ok ? "text-green-600" : "text-gray-400"
+      }`}
+    >
+      <span className={`font-bold text-base transition-transform duration-300 ${ok ? 'scale-110' : 'scale-100'}`}>
+        {ok ? "✔" : "✖"}
+      </span>
+      <span className="transition-opacity duration-300">{text}</span>
     </div>
   );
 }
