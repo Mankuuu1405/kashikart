@@ -20,13 +20,20 @@ import {
 import { EmptyState } from '../components/States';
 import { getErrorMessage, requestJson, requestWithRetry } from '../utils/api';
 
-const USE_MOCK_TENDERS = true; // TODO BACKEND: API live hote hi false, mock hata dena
-const USE_MOCK_NOTIFICATIONS = true; // TODO BACKEND: yaha real notifications API lagega
+const USE_MOCK_TENDERS = false; // Set to false to use real API
+const USE_MOCK_NOTIFICATIONS = true; // TODO BACKEND: real notifications API
+
 const TENDER_ENDPOINTS = {
-  list: '/api/tenders',
+  list: '/api/tenders/',
+  detail: (id) => `/api/tenders/${id}`,
+  update: (id) => `/api/tenders/${id}`,
+  delete: (id) => `/api/tenders/${id}`,
+  export: '/api/tenders/export/excel',
+  stats: '/api/tenders/stats/dashboard',
 };
+
 const NOTIFICATION_ENDPOINTS = {
-  list: '/api/notifications', // TODO BACKEND: yahi endpoint use hoga
+  list: '/api/notifications',
 };
 
 const INITIAL_NOTIFICATIONS = [
@@ -37,15 +44,17 @@ const INITIAL_NOTIFICATIONS = [
 
 const StatusBadge = ({ status }) => {
   const styles = {
-    New: 'bg-green-100 text-green-700',    
-    Viewed: 'bg-gray-100 text-gray-700',
-    Saved: 'bg-blue-100 text-blue-700',
-    Expired: 'bg-red-100 text-red-700',
+    new: 'bg-green-100 text-green-700',
+    viewed: 'bg-gray-100 text-gray-700',
+    saved: 'bg-blue-100 text-blue-700',
+    expired: 'bg-red-100 text-red-700',
   };
 
+  const displayStatus = status.charAt(0).toUpperCase() + status.slice(1);
+
   return (
-    <span className={`px-3 py-1 rounded-md text-xs font-medium ${styles[status] || 'bg-gray-100 text-gray-700'}`}>
-      {status}
+    <span className={`px-3 py-1 rounded-md text-xs font-medium ${styles[status.toLowerCase()] || 'bg-gray-100 text-gray-700'}`}>
+      {displayStatus}
     </span>
   );
 };
@@ -55,11 +64,8 @@ const TenderListing = () => {
   const [selectedStatus, setSelectedStatus] = useState('All Status');
   const [selectedSource, setSelectedSource] = useState('All Sources');
   const [showDatePicker, setShowDatePicker] = useState(false);
-  // const [startDate, setStartDate] = useState(null);
-  // const [endDate, setEndDate] = useState(null);
-
-  const [startDate, setStartDate] = useState(null); // Date | null
-  const [endDate, setEndDate] = useState(null);     // Date | null
+  const [startDate, setStartDate] = useState(null);
+  const [endDate, setEndDate] = useState(null);
   const [currentMonth, setCurrentMonth] = useState(new Date(2026, 0));
   const [selectedTender, setSelectedTender] = useState(null);
   const [openDropdown, setOpenDropdown] = useState(null);
@@ -71,158 +77,217 @@ const TenderListing = () => {
   const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS);
   const notificationMenuRef = useRef(null);
 
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize] = useState(25);
+  const [totalTenders, setTotalTenders] = useState(0);
 
+  // Tenders data
+  const [tenders, setTenders] = useState([]);
+  const [sources, setSources] = useState(['All Sources']);
 
-  const allTenders = [
-    {
-      id: 1,
-      title: 'IT Infrastructure Modernization for Federal facilities',
-      code: 'GSA-2026-IT-001',
-      agency: 'General Service Administration',
-      location: 'Washington, DC',
-      source: 'SAM.gov',
-      deadline: 'FEB 15, 2026',
-      daysLeft: 33,
-      status: 'New',
-      keywords: ['IT Infrastructure', 'Modernization'],
-      published: 'Thursday, January 1, 2026',
-      description: 'Seeking qualified contractors for comprehensive IT infrastructure modernization across federal facilities nationwide.',
-      attachments: [
-        { name: 'RFP_Document.pdf', size: '2.4 MB' },
-        { name: 'Technical_Requirements.pdf', size: '1.8 MB' }
-      ]
-    },
-    {
-      id: 2,
-      title: 'Highway Construction Project - Interstate 95 Expansion',
-      code: 'DOT-HWY-2026-042',
-      agency: 'Department of Transportation',
-      location: 'Virginia',
-      source: 'DOT Portal',
-      deadline: 'JAN 30, 2026',
-      daysLeft: 17,
-      status: 'Viewed',
-      keywords: ['Construction', 'Highway'],
-      published: 'Sunday, December 28, 2025',
-      description: 'Major highway expansion project requiring experienced contractors for Interstate 95 corridor improvements.',
-    },
-    {
-      id: 3,
-      title: 'Healthcare Equipment Procurement - Medical Imaging',
-      code: 'VA-MED-2026-108',
-      agency: 'Veterans Affairs',
-      location: 'Multiple Locations',
-      source: 'VA Procurement',
-      deadline: 'FEB 28, 2026',
-      daysLeft: 46,
-      status: 'New',
-      keywords: ['Medical Equipment', 'Healthcare'],
-      published: 'Monday, January 5, 2026',
-      description: 'Procurement of advanced medical imaging equipment for VA facilities across multiple locations.',
-    },
-    {
-      id: 4,
-      title: 'Cybersecurity Services - Federal Network Protection',
-      code: 'DHS-CYBER-2026-015',
-      agency: 'Department of Homeland Security',
-      location: 'Remote/DC',
-      source: 'DHS Contracts',
-      deadline: 'MAR 1, 2026',
-      daysLeft: 47,
-      status: 'Saved',
-      keywords: ['IT', 'Cybersecurity'],
-      published: 'Wednesday, January 8, 2026',
-      description: 'Comprehensive cybersecurity services for federal network protection and threat monitoring.',
-    },
-    {
-      id: 5,
-      title: 'Building Renovation - Federal Courthouse',
-      code: 'GSA-CONST-2026-087',
-      agency: 'General Services Administration (GSA)',
-      location: 'New York, NY',
-      source: 'SAM.gov',
-      deadline: 'JAN 25, 2026',
-      daysLeft: 12,
-      status: 'New',
-      keywords: ['Construction', 'Renovation'],
-      published: 'Friday, December 20, 2025',
-      description: 'Complete renovation of federal courthouse building including structural improvements and modernization.',
-    },
-    {
-      id: 6,
-      title: 'Environmental Consulting Services',
-      code: 'EPA-ENV-2026-033',
-      agency: 'Environmental Protection Agency',
-      location: 'California',
-      source: 'EPA Portal',
-      deadline: 'FEB 10, 2026',
-      daysLeft: 28,
-      status: 'Expired',
-      keywords: ['Environmental', 'Consulting'],
-      published: 'Tuesday, December 15, 2025',
-      description: 'Environmental impact assessment and consulting services for federal projects in California.',
-    },
-    {
-      id: 7,
-      title: 'Software Development - Case Management System',
-      code: 'DOJ-IT-2026-022',
-      agency: 'Department of Justice',
-      location: 'Washington, DC',
-      source: 'DOJ Procurement',
-      deadline: 'MAR 15, 2026',
-      daysLeft: 61,
-      status: 'New',
-      keywords: ['Software Development', 'IT'],
-      published: 'Saturday, January 4, 2026',
-      description: 'Development of comprehensive case management system for Department of Justice operations.',
-    },
-    {
-      id: 8,
-      title: 'Facility Management Services - Military Bases',
-      code: 'DOD-FAC-2026-156',
-      agency: 'Department of Defense',
-      location: 'Multiple Locations',
-      source: 'DoD Contracts',
-      deadline: 'FEB 20, 2026',
-      daysLeft: 38,
-      status: 'Viewed',
-      keywords: ['Facility Management'],
-      published: 'Thursday, December 10, 2025',
-      description: 'Comprehensive facility management services for military bases including maintenance and operations.',
-    },
-  ];
+  const statuses = ['All Status', 'new', 'viewed', 'saved', 'expired'];
 
-  const [tenders, setTenders] = useState(allTenders);
+  // Format date for API (YYYY-MM-DD)
+  const formatDateForAPI = (date) => {
+    if (!date) return null;
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
 
+  // Fetch tenders from API
   const fetchTenders = async () => {
-    if (USE_MOCK_TENDERS) return; // TODO BACKEND: mock delete karke API call enable hoga
+    if (USE_MOCK_TENDERS) return;
+
     try {
       setLoading(true);
       setError(null);
 
-      const data = await requestWithRetry(() =>
-        requestJson(TENDER_ENDPOINTS.list)
-      );
+      // Build query parameters
+      const params = new URLSearchParams();
+      params.append('page', currentPage);
+      params.append('page_size', pageSize);
 
-      if (!Array.isArray(data)) {
-        throw new Error('Invalid tenders format from server');
+      if (searchQuery) {
+        params.append('search', searchQuery);
       }
 
-      setTenders(data);
+      if (selectedStatus !== 'All Status') {
+        params.append('status', selectedStatus.toLowerCase());
+      }
+
+      if (selectedSource !== 'All Sources') {
+        // You'll need to map source name to source_id
+        // For now, we'll skip this or you can add source_id mapping
+        // params.append('source_id', sourceId);
+      }
+
+      if (startDate) {
+        params.append('date_from', formatDateForAPI(startDate));
+      }
+
+      if (endDate) {
+        params.append('date_to', formatDateForAPI(endDate));
+      }
+
+      const url = `${TENDER_ENDPOINTS.list}?${params.toString()}`;
+      const data = await requestWithRetry(() => requestJson(url));
+
+      if (!data || !data.items) {
+        throw new Error('Invalid response format from server');
+      }
+
+      // Map backend data to frontend format
+      const mappedTenders = data.items.map(tender => ({
+        id: tender.id,
+        title: tender.title,
+        code: tender.reference_id,
+        agency: tender.agency_name || 'N/A',
+        location: tender.agency_location || 'N/A',
+        source: tender.source_name || 'Unknown',
+        deadline: tender.deadline_date ? new Date(tender.deadline_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A',
+        daysLeft: tender.days_until_deadline || 0,
+        status: tender.status,
+        keywords: [], // TODO: Map keyword_matches when available
+        published: tender.published_date ? new Date(tender.published_date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) : 'N/A',
+        description: tender.description || 'No description available',
+        attachments: tender.attachments || [],
+        source_url: tender.source_url,
+      }));
+
+      setTenders(mappedTenders);
+      setTotalTenders(data.total);
+
     } catch (err) {
-      console.error(err);
+      console.error('Error fetching tenders:', err);
       setError(getErrorMessage(err, 'Failed to load tenders'));
     } finally {
       setLoading(false);
     }
   };
 
+  // Fetch tender details
+  const fetchTenderDetails = async (tenderId) => {
+    try {
+      const url = TENDER_ENDPOINTS.detail(tenderId);
+      const data = await requestWithRetry(() => requestJson(url));
+
+      if (!data) {
+        throw new Error('Failed to load tender details');
+      }
+
+      // Map to frontend format
+      const mappedTender = {
+        id: data.id,
+        title: data.title,
+        code: data.reference_id,
+        agency: data.agency_name || 'N/A',
+        location: data.agency_location || 'N/A',
+        source: data.source_name || 'Unknown',
+        deadline: data.deadline_date ? new Date(data.deadline_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A',
+        daysLeft: data.days_until_deadline || 0,
+        status: data.status,
+        keywords: [], // TODO: Map keyword_matches
+        published: data.published_date ? new Date(data.published_date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) : 'N/A',
+        description: data.description || 'No description available',
+        attachments: data.attachments || [],
+        source_url: data.source_url,
+      };
+
+      setSelectedTender(mappedTender);
+
+    } catch (err) {
+      console.error('Error fetching tender details:', err);
+      setError(getErrorMessage(err, 'Failed to load tender details'));
+    }
+  };
+
+  // Update tender status
+  const updateTenderStatus = async (tenderId, newStatus) => {
+    try {
+      const url = TENDER_ENDPOINTS.update(tenderId);
+      const response = await fetch(url, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          // Add authorization header if needed
+        },
+        body: JSON.stringify({ status: newStatus }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update tender');
+      }
+
+      // Refresh tenders list
+      fetchTenders();
+
+    } catch (err) {
+      console.error('Error updating tender:', err);
+      setError(getErrorMessage(err, 'Failed to update tender'));
+    }
+  };
+
+  // Export to Excel
+  const exportToExcel = async () => {
+    try {
+      const params = new URLSearchParams();
+
+      if (selectedStatus !== 'All Status') {
+        params.append('status', selectedStatus.toLowerCase());
+      }
+
+      if (selectedSource !== 'All Sources') {
+        // Add source_id mapping if available
+      }
+
+      if (startDate) {
+        params.append('date_from', formatDateForAPI(startDate));
+      }
+
+      if (endDate) {
+        params.append('date_to', formatDateForAPI(endDate));
+      }
+
+      const url = `${TENDER_ENDPOINTS.export}?${params.toString()}`;
+      
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          // Add authorization if needed
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to export data');
+      }
+
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = `tenders_export_${new Date().getTime()}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(downloadUrl);
+
+    } catch (err) {
+      console.error('Error exporting tenders:', err);
+      setError(getErrorMessage(err, 'Failed to export tenders'));
+    }
+  };
+
+  // Fetch tenders when filters change
   useEffect(() => {
     fetchTenders();
-  }, []);
+  }, [currentPage, searchQuery, selectedStatus, selectedSource, startDate, endDate]);
 
+  // Fetch notifications
   const fetchNotifications = async () => {
-    if (USE_MOCK_NOTIFICATIONS) return; // TODO BACKEND: mock hata ke API se data aayega
+    if (USE_MOCK_NOTIFICATIONS) return;
     try {
       setError(null);
       const data = await requestWithRetry(() =>
@@ -269,7 +334,6 @@ const TenderListing = () => {
     };
   }, [showNotifications]);
 
-
   const clearFilters = () => {
     setSearchQuery('');
     setSelectedStatus('All Status');
@@ -277,6 +341,7 @@ const TenderListing = () => {
     setStartDate(null);
     setEndDate(null);
     setShowDatePicker(false);
+    setCurrentPage(1);
   };
 
   const unreadCount = notifications.filter((n) => !n.isRead).length;
@@ -305,42 +370,11 @@ const TenderListing = () => {
 
   const hasActiveFilters = searchQuery || selectedStatus !== 'All Status' || selectedSource !== 'All Sources' || startDate || endDate;
 
-
-
   useEffect(() => {
     if (startDate && endDate) {
       setShowDatePicker(false);
     }
   }, [startDate, endDate]);
-
-  const safeTenders = Array.isArray(tenders) ? tenders : [];
-  const filteredTenders = safeTenders.filter(tender => {
-    const matchesSearch = 
-      searchQuery === '' ||
-      tender.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      tender.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      tender.agency.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      tender.keywords.some(k => k.toLowerCase().includes(searchQuery.toLowerCase()));
-    
-    const matchesStatus = selectedStatus === 'All Status' || tender.status === selectedStatus;
-    const matchesSource = selectedSource === 'All Sources' || tender.source === selectedSource;
-    
-    let matchesDate = true;
-    if (startDate && endDate) {
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-       const tenderDeadline = new Date(tender.deadline + " 2026");
-      // For now, we'll skip date filtering on tender data since tenders don't have dates
-      // This would need deadline conversion if you want to filter by deadline
-
-      matchesDate = tenderDeadline >= startDate && tenderDeadline <= endDate;
-    }
-    
-    return matchesSearch && matchesStatus && matchesSource && matchesDate;
-  });
-
-  const sources = ['All Sources', 'SAM.gov', 'DOT Portal', 'VA Procurement', 'DHS Contracts', 'EPA Portal', 'DOJ Procurement','DoD Contracts','NASA Procurement'];
-  const statuses = ['All Status', 'New', 'Viewed', 'Saved', 'Expired' ];
 
   const getDaysInMonth = (date) => {
     return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
@@ -350,8 +384,8 @@ const TenderListing = () => {
     return new Date(date.getFullYear(), date.getMonth(), 1).getDay();
   };
 
-  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
-                      'July', 'August', 'September', 'October', 'November', 'December'];
+  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'];
 
   const formatDateString = (date) => {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -377,21 +411,10 @@ const TenderListing = () => {
       const currentDate = new Date(date.getFullYear(), date.getMonth(), day);
       const dateStr = formatDateString(currentDate);
       const isToday = day === 15 && monthOffset === 0;
-      // const isStart = startDate === dateStr;
-      // const isEnd = endDate === dateStr;
       const isStart = startDate && currentDate.toDateString() === startDate.toDateString();
       const isEnd = endDate && currentDate.toDateString() === endDate.toDateString();
-      
-      // let isInRange = false;
-      // if (startDate && endDate) {
-      //   const startDateObj = new Date(startDate);
-      //   const endDateObj = new Date(endDate);
-      //   isInRange = currentDate > startDateObj && currentDate < endDateObj;
-      // }
-
       const isInRange = startDate && endDate && currentDate > startDate && currentDate < endDate;
 
-      
       days.push(
         <button
           key={day}
@@ -406,15 +429,14 @@ const TenderListing = () => {
               setEndDate(currentDate);
             }
           }}
-          className={`text-center py-2 text-sm rounded-lg transition ${
-            isToday 
-              ? 'bg-blue-500 text-white hover:bg-blue-600 font-semibold' 
-              : isStart || isEnd
+          className={`text-center py-2 text-sm rounded-lg transition ${isToday
+            ? 'bg-blue-500 text-white hover:bg-blue-600 font-semibold'
+            : isStart || isEnd
               ? 'bg-blue-500 text-white font-semibold'
               : isInRange
-              ? 'bg-blue-100 text-blue-700'
-              : 'text-gray-700 hover:bg-gray-100'
-          }`}
+                ? 'bg-blue-100 text-blue-700'
+                : 'text-gray-700 hover:bg-gray-100'
+            }`}
         >
           {day}
         </button>
@@ -440,6 +462,15 @@ const TenderListing = () => {
     );
   };
 
+  const handleViewTender = async (tender) => {
+    await fetchTenderDetails(tender.id);
+  };
+
+  const handleSaveTender = async (tenderId) => {
+    await updateTenderStatus(tenderId, 'saved');
+    setOpenDropdown(null);
+  };
+
   return (
     <div className="h-screen flex flex-col bg-gray-50">
       <div className="sticky top-0 z-20 bg-gray-50 px-6 pt-4 pb-3 border-b border-gray-200">
@@ -449,86 +480,92 @@ const TenderListing = () => {
               Tender Listings
             </h1>
             <p className="text-sm text-gray-500 mt-0.5">
-              {filteredTenders.length} tenders found
+              {totalTenders} tenders found
             </p>
           </div>
-          <div className="relative" ref={notificationMenuRef}>
+          <div className="flex items-center gap-3">
             <button
-              onClick={handleToggleNotifications}
-              className="relative p-1.5 rounded-lg hover:bg-gray-100 transition"
+              onClick={exportToExcel}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-sm font-medium"
             >
-              <Bell size={18} className="text-gray-500 hover:text-gray-700" />
-              {unreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] rounded-full px-1">
-                  {unreadCount}
-                </span>
-              )}
+              <Download size={16} />
+              Export
             </button>
+            <div className="relative" ref={notificationMenuRef}>
+              <button
+                onClick={handleToggleNotifications}
+                className="relative p-1.5 rounded-lg hover:bg-gray-100 transition"
+              >
+                <Bell size={18} className="text-gray-500 hover:text-gray-700" />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] rounded-full px-1">
+                    {unreadCount}
+                  </span>
+                )}
+              </button>
 
-            {showNotifications && (
-              <div className="absolute right-0 mt-2 w-72 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
-                <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200">
-                  <span className="text-sm font-semibold">Notifications</span>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={handleMarkAllRead}
-                      disabled={unreadCount === 0}
-                      className={`text-[11px] ${
-                        unreadCount === 0
-                          ? 'text-gray-300 cursor-not-allowed'
-                          : 'text-blue-600 hover:text-blue-700'
-                      }`}
-                    >
-                      Mark all
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleClearNotifications}
-                      disabled={notifications.length === 0}
-                      className={`text-[11px] ${
-                        notifications.length === 0
-                          ? 'text-gray-300 cursor-not-allowed'
-                          : 'text-red-500 hover:text-red-600'
-                      }`}
-                    >
-                      Clear
-                    </button>
-                  </div>
-                </div>
-
-                {notifications.length === 0 ? (
-                  <div className="px-4 py-3 text-xs text-gray-500 text-center">
-                    No notifications
-                  </div>
-                ) : (
-                  notifications.map((n) => (
-                    <div
-                      key={n.id}
-                      onClick={() => handleNotificationClick(n.id)}
-                      className={`flex items-start justify-between gap-2 px-4 py-2 text-xs border-b last:border-b-0 cursor-pointer ${
-                        n.isRead
-                          ? 'text-gray-500'
-                          : 'text-gray-900 font-medium'
-                      }`}
-                    >
-                      <span className="flex-1">{n.message}</span>
+              {showNotifications && (
+                <div className="absolute right-0 mt-2 w-72 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
+                  <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200">
+                    <span className="text-sm font-semibold">Notifications</span>
+                    <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          handleRemoveNotification(n.id);
-                        }}
-                        className="text-gray-400 hover:text-red-500"
-                        title="Remove notification"
+                        onClick={handleMarkAllRead}
+                        disabled={unreadCount === 0}
+                        className={`text-[11px] ${unreadCount === 0
+                          ? 'text-gray-300 cursor-not-allowed'
+                          : 'text-blue-600 hover:text-blue-700'
+                          }`}
                       >
-                        <X size={12} />
+                        Mark all
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleClearNotifications}
+                        disabled={notifications.length === 0}
+                        className={`text-[11px] ${notifications.length === 0
+                          ? 'text-gray-300 cursor-not-allowed'
+                          : 'text-red-500 hover:text-red-600'
+                          }`}
+                      >
+                        Clear
                       </button>
                     </div>
-                  ))
-                )}
-              </div>
-            )}
+                  </div>
+
+                  {notifications.length === 0 ? (
+                    <div className="px-4 py-3 text-xs text-gray-500 text-center">
+                      No notifications
+                    </div>
+                  ) : (
+                    notifications.map((n) => (
+                      <div
+                        key={n.id}
+                        onClick={() => handleNotificationClick(n.id)}
+                        className={`flex items-start justify-between gap-2 px-4 py-2 text-xs border-b last:border-b-0 cursor-pointer ${n.isRead
+                          ? 'text-gray-500'
+                          : 'text-gray-900 font-medium'
+                          }`}
+                      >
+                        <span className="flex-1">{n.message}</span>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleRemoveNotification(n.id);
+                          }}
+                          className="text-gray-400 hover:text-red-500"
+                          title="Remove notification"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -554,7 +591,10 @@ const TenderListing = () => {
             />
             <input
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setCurrentPage(1); // Reset to first page on search
+              }}
               placeholder="Search by title, agency, reference ID, or keywords..."
               className="w-full py-2 pl-10 pr-4 text-sm text-gray-700 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
@@ -566,27 +606,10 @@ const TenderListing = () => {
               <span className="text-sm">Filters:</span>
             </div>
 
-             {/* <select 
-              value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value)}
-              className="border border-gray-300 rounded-md px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer hover:border-gray-400">
-              {statuses.map(status => (
-                <option key={status}  value={status} >{status}</option>
-              ))}
-            </select>  */}
-
-
             <div className="relative">
               <button
                 onClick={() => setStatusOpen(v => !v)}
-                className="
-                  flex items-center justify-between gap-2
-                  border border-gray-300 rounded-md
-                  px-4 py-2 text-sm text-gray-700
-                  min-w-[160px]
-                  hover:border-gray-400 hover:bg-gray-50
-                  focus:outline-none focus:ring-2 focus:ring-blue-500
-                "
+                className="flex items-center justify-between gap-2 border border-gray-300 rounded-md px-4 py-2 text-sm text-gray-700 min-w-[160px] hover:border-gray-400 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <span>{selectedStatus}</span>
                 <ChevronDown className="w-4 h-4 text-gray-500" />
@@ -609,17 +632,14 @@ const TenderListing = () => {
                           onClick={() => {
                             setSelectedStatus(status);
                             setStatusOpen(false);
+                            setCurrentPage(1);
                           }}
-                          className={`
-                            flex w-full items-center gap-2 px-3 py-2 text-sm
-                            transition  rounded hover:bg-blue-500 hover:text-white
-                            ${isSelected ? ' text-gray-700 font-medium' : 'text-gray-700'}
-                          `}
+                          className={`flex w-full items-center gap-2 px-3 py-2 text-sm transition rounded hover:bg-blue-500 hover:text-white ${isSelected ? 'text-gray-700 font-medium' : 'text-gray-700'
+                            }`}
                         >
                           <span className="w-4">
                             {isSelected && <Check className="w-4 h-4" />}
                           </span>
-
                           <span>{status}</span>
                         </button>
                       );
@@ -629,24 +649,11 @@ const TenderListing = () => {
               )}
             </div>
 
-            
-
-            {/* <select 
-              value={selectedSource}
-              onChange={(e) => setSelectedSource(e.target.value)}
-              className="border border-gray-300 rounded-md px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer hover:border-gray-400"
-            >
-              {sources.map(source => (
-                <option key={source} value={source}>{source}</option>
-              ))}
-            </select> */}
-
             <div className="relative">
               <button
                 onClick={() => setSourceOpen(v => !v)}
-                className="
-                  flex items-center justify-between gap-2
-                  border border-gray-300 rounded-md px-4 py-2 text-sm text-gray-700 min-w-[180px] hover:border-gray-400 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                className="flex items-center justify-between gap-2 border border-gray-300 rounded-md px-4 py-2 text-sm text-gray-700 min-w-[180px] hover:border-gray-400 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
                 <span>{selectedSource}</span>
                 <ChevronDown className="w-4 h-4 text-gray-500" />
               </button>
@@ -668,17 +675,14 @@ const TenderListing = () => {
                           onClick={() => {
                             setSelectedSource(source);
                             setSourceOpen(false);
+                            setCurrentPage(1);
                           }}
-                          className={`
-                            flex w-full items-center gap-2 px-3 py-2 text-sm
-                            transition  rounded hover:bg-blue-500 hover:text-white
-                            ${isSelected ? 'text-gray-700 font-medium' : 'text-gray-700'}
-                          `}
+                          className={`flex w-full items-center gap-2 px-3 py-2 text-sm transition rounded hover:bg-blue-500 hover:text-white ${isSelected ? 'text-gray-700 font-medium' : 'text-gray-700'
+                            }`}
                         >
                           <span className="w-4">
                             {isSelected && <Check className="w-4 h-4" />}
                           </span>
-
                           <span>{source}</span>
                         </button>
                       );
@@ -689,7 +693,7 @@ const TenderListing = () => {
             </div>
 
             <div className="relative">
-              <button 
+              <button
                 onClick={() => setShowDatePicker(!showDatePicker)}
                 className="flex items-center gap-2 border border-gray-300 px-4 py-2 rounded-md hover:bg-blue-500 hover:text-white transition text-sm font-semibold text-gray-600"
               >
@@ -708,10 +712,11 @@ const TenderListing = () => {
                       {startDate && endDate && (
                         <>
                           <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">1 active</span>
-                          <button 
+                          <button
                             onClick={() => {
                               setStartDate(null);
                               setEndDate(null);
+                              setCurrentPage(1);
                             }}
                             className="text-xs text-blue-600 hover:text-blue-700 hover:underline ml-1"
                           >
@@ -720,22 +725,22 @@ const TenderListing = () => {
                         </>
                       )}
                     </div>
-                    <button 
+                    <button
                       onClick={() => setShowDatePicker(false)}
                       className="text-gray-400 hover:text-gray-600"
                     >
                       <X size={18} />
                     </button>
                   </div>
-                  
+
                   <div className="flex items-center justify-between mb-3">
-                    <button 
+                    <button
                       onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1))}
                       className="p-1 hover:bg-gray-100 rounded transition"
                     >
                       <ChevronLeft size={18} className="text-gray-600" />
                     </button>
-                    <button 
+                    <button
                       onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1))}
                       className="p-1 hover:bg-gray-100 rounded transition"
                     >
@@ -755,30 +760,13 @@ const TenderListing = () => {
               {hasActiveFilters && (
                 <button
                   onClick={clearFilters}
-                  className="
-                    inline-flex items-center justify-center gap-2
-                    whitespace-nowrap text-sm font-medium
-                    text-muted-foreground hover:text-foreground
-                    hover:bg-blue-400
-                    rounded-md px-3 h-9
-                    transition-colors
-                    focus-visible:outline-none
-                    focus-visible:ring-2
-                    focus-visible:ring-blue-500
-                    focus-visible:ring-offset-2
-                    disabled:pointer-events-none disabled:opacity-50
-                    [&_svg]:pointer-events-none
-                    [&_svg]:size-4
-                    [&_svg]:shrink-0
-                  "
+                  className="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-blue-400 rounded-md px-3 h-9 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
                 >
                   <X className="w-4 h-4 mr-1" />
                   Clear all
                 </button>
               )}
             </div>
-
-            
           </div>
         </div>
 
@@ -796,7 +784,7 @@ const TenderListing = () => {
               </thead>
 
               <tbody className="divide-y divide-gray-100">
-                {filteredTenders.length === 0 ? (
+                {tenders.length === 0 && !loading ? (
                   <tr>
                     <td colSpan={7} className="px-6 py-8">
                       <EmptyState
@@ -806,106 +794,112 @@ const TenderListing = () => {
                     </td>
                   </tr>
                 ) : (
-                  filteredTenders.map((t) => (
+                  tenders.map((t) => (
                     <tr key={t.id} className="hover:bg-gray-50 transition">
-                    <td className="px-6 py-4">
-                      <p className="text-sm font-semibold text-gray-800 mb-1 max-w-[300px]">
-                        {t.title}
-                      </p>
-                      <p className="text-xs text-gray-500">{t.code}</p>
-                    </td>
+                      <td className="px-6 py-4">
+                        <p className="text-sm font-semibold text-gray-800 mb-1 max-w-[300px]">
+                          {t.title}
+                        </p>
+                        <p className="text-xs text-gray-500">{t.code}</p>
+                      </td>
 
-                    <td className="px-6 py-4">
-                      <p className="text-sm text-gray-700 mb-1">{t.agency}</p>
-                      <p className="text-xs text-gray-500">{t.location}</p>
-                    </td>
+                      <td className="px-6 py-4">
+                        <p className="text-sm text-gray-700 mb-1">{t.agency}</p>
+                        <p className="text-xs text-gray-500">{t.location}</p>
+                      </td>
 
-                    <td className="px-6 py-4 text-sm text-gray-600">
-                      {t.source}
-                    </td>
+                      <td className="px-6 py-4 text-sm text-gray-600">
+                        {t.source}
+                      </td>
 
-                    <td className="px-6 py-4">
-                      <p className="text-sm text-gray-800 font-medium mb-1">{t.deadline}</p>
-                      <p className="text-xs text-gray-500">{t.daysLeft} days left</p>
-                    </td>
+                      <td className="px-6 py-4">
+                        <p className="text-sm text-gray-800 font-medium mb-1">{t.deadline}</p>
+                        <p className="text-xs text-gray-500">{t.daysLeft} days left</p>
+                      </td>
 
-                    <td className="px-6 py-4">
-                      <StatusBadge status={t.status} />
-                    </td>
+                      <td className="px-6 py-4">
+                        <StatusBadge status={t.status} />
+                      </td>
 
-                    <td className="px-6 py-4">
-                      <div className="flex flex-col gap-1.5">
-                        {t.keywords.map((keyword, idx) => (
-                          <span 
-                            key={idx}
-                            className="w-fit px-2.5 py-0.5 rounded-full bg-gray-100 text-xs font-medium text-gray-700"
-                          >
-                            {keyword}
-                          </span>
-                        ))}
-                      </div>
-                    </td>
-
-                    <td className="px-6 py-4">
-                      <div className="flex gap-3 text-gray-600">
-                        <button
-                          className="p-1.5 rounded hover:bg-blue-500 transition"
-                          onClick={() => setSelectedTender(t)}
-                        >
-                          <Eye 
-                            size={18} 
-                            strokeWidth={2} 
-                            className="cursor-pointer text-gray-600 hover:text-white" 
-                          />
-                        </button>
-                        <button className="p-1.5 rounded hover:bg-blue-500 transition">
-                          <Bookmark size={18} strokeWidth={2} className="cursor-pointer text-gray-600 hover:text-white" />
-                        </button>
-                        <div className="relative">
-                          <button
-                            onClick={() => setOpenDropdown(openDropdown === t.id ? null : t.id)}
-                            className="p-1.5 rounded hover:bg-blue-500 transition"
-                          >
-                            <MoreHorizontal 
-                              size={18} 
-                              strokeWidth={2} 
-                              className="cursor-pointer text-gray-600 hover:text-white" 
-                            />
-                          </button>
-                          {openDropdown === t.id && (
-                            <>
-                              <div 
-                                className="fixed inset-0 z-10"
-                                onClick={() => setOpenDropdown(null)}
-                              />
-                              <div className="absolute right-0 top-6 mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-20 py-1">
-                                <button
-                                  onClick={() => {
-                                    setSelectedTender(t);
-                                    setOpenDropdown(null);
-                                  }}
-                                  className="w-full text-left px-4 py-2 text-sm text-gray-700 rounded hover:bg-blue-500 hover:text-white flex items-center gap-2"
-                                >
-                                  <ExternalLink size={14} />
-                                  Open Source URL
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    setSelectedTender(t);
-                                    setOpenDropdown(null);
-                                  }}
-                                  className="w-full text-left px-4 py-2 text-sm text-gray-700  rounded hover:bg-blue-500 hover:text-white flex items-center gap-2"
-                                >
-                                  <Bookmark size={14} />
-                                  Save Tender
-                                </button>
-                              </div>
-                            </>
+                      <td className="px-6 py-4">
+                        <div className="flex flex-col gap-1.5">
+                          {t.keywords.length > 0 ? (
+                            t.keywords.map((keyword, idx) => (
+                              <span
+                                key={idx}
+                                className="w-fit px-2.5 py-0.5 rounded-full bg-gray-100 text-xs font-medium text-gray-700"
+                              >
+                                {keyword}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-xs text-gray-400">No keywords</span>
                           )}
                         </div>
-                      </div>
-                    </td>
-                  </tr>
+                      </td>
+
+                      <td className="px-6 py-4">
+                        <div className="flex gap-3 text-gray-600">
+                          <button
+                            className="p-1.5 rounded hover:bg-blue-500 transition"
+                            onClick={() => handleViewTender(t)}
+                          >
+                            <Eye
+                              size={18}
+                              strokeWidth={2}
+                              className="cursor-pointer text-gray-600 hover:text-white"
+                            />
+                          </button>
+                          <button
+                            className="p-1.5 rounded hover:bg-blue-500 transition"
+                            onClick={() => handleSaveTender(t.id)}
+                          >
+                            <Bookmark size={18} strokeWidth={2} className="cursor-pointer text-gray-600 hover:text-white" />
+                          </button>
+                          <div className="relative">
+                            <button
+                              onClick={() => setOpenDropdown(openDropdown === t.id ? null : t.id)}
+                              className="p-1.5 rounded hover:bg-blue-500 transition"
+                            >
+                              <MoreHorizontal
+                                size={18}
+                                strokeWidth={2}
+                                className="cursor-pointer text-gray-600 hover:text-white"
+                              />
+                            </button>
+                            {openDropdown === t.id && (
+                              <>
+                                <div
+                                  className="fixed inset-0 z-10"
+                                  onClick={() => setOpenDropdown(null)}
+                                />
+                                <div className="absolute right-0 top-6 mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-20 py-1">
+                                  {t.source_url && (
+                                    <a
+                                      href={t.source_url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="w-full text-left px-4 py-2 text-sm text-gray-700 rounded hover:bg-blue-500 hover:text-white flex items-center gap-2"
+                                      onClick={() => setOpenDropdown(null)}
+                                    >
+                                      <ExternalLink size={14} />
+                                      Open Source URL
+                                    </a>
+                                  )}
+                                  <button
+                                    onClick={() => handleSaveTender(t.id)}
+                                    className="w-full text-left px-4 py-2 text-sm text-gray-700 rounded hover:bg-blue-500 hover:text-white flex items-center gap-2"
+                                  >
+                                    <Bookmark size={14} />
+                                    Save Tender
+                                  </button>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
                   ))
                 )}
               </tbody>
@@ -914,22 +908,39 @@ const TenderListing = () => {
         </div>
 
         <div className="flex justify-between items-center mt-4 text-sm text-gray-500">
-          <span>Showing {filteredTenders.length} of {safeTenders.length} tenders</span>
+          <span>Showing {tenders.length} of {totalTenders} tenders</span>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              className="px-3 py-1 border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Previous
+            </button>
+            <span className="px-3 py-1">Page {currentPage}</span>
+            <button
+              onClick={() => setCurrentPage(p => p + 1)}
+              disabled={tenders.length < pageSize}
+              className="px-3 py-1 border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Next
+            </button>
+          </div>
         </div>
       </div>
 
       {selectedTender && (
         <>
-          <div 
+          <div
             className="fixed inset-0 bg-black bg-opacity-30 z-40"
             onClick={() => setSelectedTender(null)}
           />
-          
+
           <div className="fixed top-0 right-0 h-full w-[500px] bg-white shadow-2xl z-50 overflow-y-auto">
             <div className="p-6">
               <div className="flex justify-between items-start mb-6">
                 <StatusBadge status={selectedTender.status} />
-                <button 
+                <button
                   onClick={() => setSelectedTender(null)}
                   className="text-gray-400 hover:text-gray-600 transition"
                 >
@@ -993,21 +1004,23 @@ const TenderListing = () => {
                 </div>
               </div>
 
-              <div className="mb-8">
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="text-sm font-semibold text-gray-900">Keyword Matches</span>
+              {selectedTender.keywords.length > 0 && (
+                <div className="mb-8">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-sm font-semibold text-gray-900">Keyword Matches</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedTender.keywords.map((keyword, idx) => (
+                      <span
+                        key={idx}
+                        className="px-3 py-1.5 rounded-md bg-blue-50 text-sm font-medium text-blue-700"
+                      >
+                        {keyword}
+                      </span>
+                    ))}
+                  </div>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  {selectedTender.keywords.map((keyword, idx) => (
-                    <span 
-                      key={idx}
-                      className="px-3 py-1.5 rounded-md bg-blue-50 text-sm font-medium text-blue-700"
-                    >
-                      {keyword}
-                    </span>
-                  ))}
-                </div>
-              </div>
+              )}
 
               <div className="mb-8">
                 <h3 className="text-sm font-semibold text-gray-900 mb-3">Description</h3>
@@ -1021,7 +1034,7 @@ const TenderListing = () => {
                   <h3 className="text-sm font-semibold text-gray-900 mb-3">Attachments</h3>
                   <div className="space-y-2">
                     {selectedTender.attachments.map((attachment, idx) => (
-                      <div 
+                      <div
                         key={idx}
                         className="flex items-center justify-between p-3 rounded-lg bg-red-50 hover:bg-red-100 transition cursor-pointer"
                       >
@@ -1041,10 +1054,17 @@ const TenderListing = () => {
                 </div>
               )}
 
-              <button className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold flex items-center justify-center gap-2 transition">
-                <ExternalLink size={18} />
-                View on {selectedTender.source}
-              </button>
+              {selectedTender.source_url && (
+                <a
+                  href={selectedTender.source_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold flex items-center justify-center gap-2 transition"
+                >
+                  <ExternalLink size={18} />
+                  View on {selectedTender.source}
+                </a>
+              )}
             </div>
           </div>
         </>
@@ -1053,4 +1073,4 @@ const TenderListing = () => {
   );
 };
 
-export default TenderListing; 
+export default TenderListing;

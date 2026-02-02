@@ -14,185 +14,22 @@ import {
 } from "lucide-react";
 import { getErrorMessage, requestJson, requestWithRetry } from "../utils/api";
 
-const VALID_TENDER_STATUS = ["NEW", "VIEWED", "SAVED"];
+const VALID_TENDER_STATUS = ["new", "viewed", "saved"];
 const USE_MOCK_ATTACHMENTS = true;
+
 const DASHBOARD_ENDPOINTS = {
-  fetch: "/api/dashboard",
-  sync: "/api/dashboard/sync",
+  stats: "/api/dashboard/stats",
+  recentTenders: "/api/dashboard/recent-tenders",
+  sourceStatus: "/api/dashboard/source-status",
+  tenderDetail: (id) => `/api/tenders/${id}`,
+  tenderUpdate: (id) => `/api/tenders/${id}`,
 };
 
-/* ================= MOCK DATA ================= */
-// NOTE: Backend connect ke baad ye mock data hata dena hai.
-// Ye sab remove hoga: BASE_*, buildMock*, INITIAL_*
-const BASE_NOTIFICATIONS = [
+const INITIAL_NOTIFICATIONS = [
   { id: 1, message: "New tender added from SAM.gov", isRead: false },
-  {
-    id: 2,
-    message: "Tender deadline approaching (5 days left)",
-    isRead: false,
-  },
+  { id: 2, message: "Tender deadline approaching (5 days left)", isRead: false },
   { id: 3, message: "Source DHS Contract is in warning state", isRead: true },
 ];
-
-const BASE_TENDERS = [
-  {
-    id: 1,
-    title: "IT Infrastructure Modernization for federal facilities",
-    code: "GSA-2026-IT-C01",
-    agency: "General Service Administration (GSA)",
-    location: "Washington DC",
-    source: "SAM.gov",
-    deadline: "FEB 15, 2026",
-    daysLeft: "38 Days left",
-    status: "NEW",
-    keywords: ["IT Infrastructure", "Modernization"],
-    attachments: [
-      {
-        name: "RFP_Document.pdf",
-        size: "2.4 MB",
-        type: "pdf",
-      },
-      {
-        name: "Technical_Requirements.pdf",
-        size: "1.1 MB",
-        type: "pdf",
-      },
-    ],
-  },
-  {
-    id: 2,
-    title: "Highway Construction Project - Interstate 95 Ex...",
-    code: "DOT-HWY-2026-042",
-    agency: "Department of Transportation",
-    location: "Virginia",
-    source: "DOT Portal",
-    deadline: "Jan 30, 2026",
-    daysLeft: "17 days left",
-    status: "VIEWED",
-    keywords: ["Construction", "Highway"],
-    attachments: [
-      {
-        name: "Site_Specs.pdf",
-        size: "3.8 MB",
-        type: "pdf",
-      },
-    ],
-  },
-  {
-    id: 3,
-    title: "Healthcare Equipment Procurement - Medical I..",
-    code: "VA-MED-2026-10",
-    agency: "Veterans Affairs",
-    location: "Multiple Locations",
-    source: "VA Procurement",
-    deadline: "Feb 28, 2026",
-    daysLeft: "46 days left",
-    status: "NEW",
-    keywords: ["Healthcare", "Medical Equipment"],
-    attachments: [
-      {
-        name: "Vendor_Checklist.docx",
-        size: "420 KB",
-        type: "docx",
-      },
-    ],
-  },
-  {
-    id: 4,
-    title: "Cybersecurity Services - Federal Network Protectio",
-    code: "DHS-CYBER-2026-015",
-    agency: "Department of Homeland Security",
-    location: "Remote/DC",
-    source: "DHS Contracts",
-    deadline: "Mar 1, 2026",
-    daysLeft: "47 days left",
-    status: "SAVED",
-    keywords: ["Cybersecurity", "IT"],
-    attachments: [],
-  },
-  {
-    id: 5,
-    title: "Building Renovation - Federal Courthouse",
-    code: "GSA-CONST-2026-087",
-    agency: "General Service Administration (GSA)",
-    location: "New York, NY",
-    source: "SAM.gov",
-    deadline: "Jan 25, 2026",
-    daysLeft: "12 days left",
-    status: "NEW",
-    keywords: ["Construction", "Renovation"],
-    attachments: [
-      {
-        name: "Project_Drawings.zip",
-        size: "12.6 MB",
-        type: "zip",
-      },
-    ],
-  },
-];
-
-const BASE_TOP_KEYWORDS = [
-  { rank: 1, name: "IT Infrastructure", matches: 24, color: "green" },
-  { rank: 2, name: "Cybersecurity", matches: 18, color: "green" },
-  { rank: 3, name: "Construction", matches: 16, color: "red" },
-  { rank: 4, name: "Healthcare", matches: 12, color: "green" },
-  { rank: 5, name: "Software Development", matches: 9, color: "gray" },
-];
-
-const BASE_SOURCES = [
-  {
-    name: "SAM.gov",
-    status: "ACTIVE",
-    count: "53 new today",
-    color: "green",
-  },
-  {
-    name: "DOT portal",
-    status: "ACTIVE",
-    count: "8 new today",
-    color: "green",
-  },
-  {
-    name: "VA Procurement",
-    status: "ACTIVE",
-    count: "5 new today",
-    color: "green",
-  },
-  {
-    name: "DHS Contract",
-    status: "WARNING",
-    count: "3 new today",
-    color: "orange",
-  },
-  { name: "EPA portal", status: "ERROR", count: "0 new today", color: "red" },
-  {
-    name: "DoD Connect",
-    status: "ACTIVE",
-    count: "12 new today",
-    color: "green",
-  },
-];
-
-function buildMockDashboard() {
-  return {
-    notifications: BASE_NOTIFICATIONS,
-    tenders: BASE_TENDERS,
-    topKeywords: BASE_TOP_KEYWORDS,
-    sources: BASE_SOURCES,
-    lastSyncAt: "2026-01-01 08:30 AM",
-    nextSyncIn: "23 minutes",
-    stats: {
-      newTendersToday: 52,
-      keywordMatches: 18,
-      activeSources: { active: 56, total: 62 },
-      alertsToday: 7,
-      trendNewTenders: 12,
-      trendKeywords: 8,
-    },
-  };
-}
-
-const INITIAL_DASHBOARD = buildMockDashboard();
 
 function isValidSearch(value) {
   if (!value) return true;
@@ -205,48 +42,16 @@ function safeArray(arr) {
 }
 
 function safeStatus(status) {
-  return VALID_TENDER_STATUS.includes(status) ? status : "VIEWED";
+  const normalized = String(status || "").toLowerCase();
+  return VALID_TENDER_STATUS.includes(normalized) ? normalized : "viewed";
 }
 
 function isValidTender(tender) {
   if (!tender) return false;
-  if (!VALID_TENDER_STATUS.includes(tender.status)) return false;
-  if (typeof tender.title !== "string" || tender.title.trim() === "")
-    return false;
-  if (typeof tender.code !== "string" || tender.code.trim() === "") return false;
-  if (typeof tender.agency !== "string" || tender.agency.trim() === "")
-    return false;
-  if (typeof tender.source !== "string" || tender.source.trim() === "")
-    return false;
+  if (!VALID_TENDER_STATUS.includes(safeStatus(tender.status))) return false;
+  if (typeof tender.title !== "string" || tender.title.trim() === "") return false;
+  if (typeof tender.reference_id !== "string" || tender.reference_id.trim() === "") return false;
   return true;
-}
-
-function computeStatsFromData(tenders, sources, notifications) {
-  const safeTenders = safeArray(tenders);
-  const safeSources = safeArray(sources);
-  const safeNotifications = safeArray(notifications);
-
-  const newTendersToday = safeTenders.filter(
-    (t) => safeStatus(t.status) === "NEW"
-  ).length;
-  const keywordMatches = safeTenders.reduce(
-    (count, tender) => count + safeArray(tender.keywords).length,
-    0
-  );
-  const activeSources = {
-    active: safeSources.filter((s) => s?.status === "ACTIVE").length,
-    total: safeSources.length,
-  };
-  const alertsToday = safeNotifications.filter((n) => !n?.isRead).length;
-
-  return {
-    newTendersToday,
-    keywordMatches,
-    activeSources,
-    alertsToday,
-    trendNewTenders: 0,
-    trendKeywords: 0,
-  };
 }
 
 const Dashboard = () => {
@@ -255,54 +60,135 @@ const Dashboard = () => {
   const [selectedTender, setSelectedTender] = useState(null);
   const [activeActionsId, setActiveActionsId] = useState(null);
 
-  const [notifications, setNotifications] = useState(
-    INITIAL_DASHBOARD.notifications
-  );
-  const [tenderList, setTenderList] = useState(INITIAL_DASHBOARD.tenders);
-  const [topKeywords, setTopKeywords] = useState(
-    INITIAL_DASHBOARD.topKeywords
-  );
-  const [sources, setSources] = useState(INITIAL_DASHBOARD.sources);
-  const [lastSyncAt, setLastSyncAt] = useState(INITIAL_DASHBOARD.lastSyncAt);
-  const [nextSyncIn, setNextSyncIn] = useState(INITIAL_DASHBOARD.nextSyncIn);
-  const [stats, setStats] = useState(INITIAL_DASHBOARD.stats);
+  const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS);
+  const [tenderList, setTenderList] = useState([]);
+  const [topKeywords, setTopKeywords] = useState([]);
+  const [sources, setSources] = useState([]);
+  const [lastSyncAt, setLastSyncAt] = useState("—");
+  const [nextSyncIn, setNextSyncIn] = useState("—");
+  const [stats, setStats] = useState({
+    newTendersToday: 0,
+    keywordMatches: 0,
+    activeSources: { active: 0, total: 0 },
+    alertsToday: 0,
+    trendNewTenders: 0,
+    trendKeywords: 0,
+  });
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 5;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const notificationMenuRef = useRef(null);
 
-  // const fetchDashboard = async () => {
-  //   try {
-  //     setLoading(true);
-  //     setError(null);
-  //
-  //     // TODO BACKEND: yaha axios GET lagega (dashboard data)
-  //     // const res = await axios.get(DASHBOARD_ENDPOINTS.fetch);
-  //
-  //     // if (!res?.data) throw new Error("Invalid dashboard response");
-  //     // setNotifications(res.data.notifications || []);
-  //     // setTenderList(res.data.tenders || []);
-  //     // setTopKeywords(res.data.topKeywords || []);
-  //     // setSources(res.data.sources || []);
-  //     // setLastSyncAt(res.data.lastSyncAt || "");
-  //     // setNextSyncIn(res.data.nextSyncIn || "");
-  //     // setStats(res.data.stats || {});
-  //   } catch (err) {
-  //     console.error(err);
-  //     setError(
-  //       err.response?.data?.message ||
-  //         err.message ||
-  //         "Failed to load dashboard"
-  //     );
-  //   } finally {
-  //     setLoading(false);
-  //   }
-  // };
-  //
-  // useEffect(() => {
-  //   fetchDashboard();
-  // }, []);
+  // Fetch dashboard data
+  const fetchDashboard = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Fetch all dashboard data in parallel
+      const [statsData, tendersData, sourcesData] = await Promise.all([
+        requestWithRetry(() => requestJson(DASHBOARD_ENDPOINTS.stats)),
+        requestWithRetry(() => requestJson(`${DASHBOARD_ENDPOINTS.recentTenders}?limit=50`)),
+        requestWithRetry(() => requestJson(DASHBOARD_ENDPOINTS.sourceStatus)),
+      ]);
+
+      // Update stats
+      if (statsData) {
+        setStats({
+          newTendersToday: statsData.new_tenders_today || 0,
+          keywordMatches: statsData.keyword_matches_today || 0,
+          activeSources: {
+            active: statsData.active_sources || 0,
+            total: statsData.total_sources || 0,
+          },
+          alertsToday: statsData.alerts_today || 0,
+          trendNewTenders: statsData.new_tenders_change || 0,
+          trendKeywords: statsData.keyword_matches_change || 0,
+        });
+
+        // Update top keywords
+        if (statsData.top_keywords && Array.isArray(statsData.top_keywords)) {
+          setTopKeywords(
+            statsData.top_keywords.map((kw, index) => ({
+              rank: index + 1,
+              name: kw.keyword,
+              matches: kw.matches,
+              color: kw.matches > 15 ? "green" : kw.matches > 10 ? "gray" : "red",
+            }))
+          );
+        }
+      }
+
+      // Update tenders
+      if (Array.isArray(tendersData)) {
+        const mappedTenders = tendersData.map((tender) => ({
+          id: tender.id,
+          title: tender.title,
+          code: tender.reference_id,
+          agency: tender.agency_name || "N/A",
+          location: tender.agency_location || "N/A",
+          source: tender.source_name || "Unknown",
+          deadline: tender.deadline_date
+            ? new Date(tender.deadline_date).toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+              })
+            : "N/A",
+          daysLeft: tender.days_until_deadline
+            ? `${tender.days_until_deadline} days left`
+            : "—",
+          status: safeStatus(tender.status),
+          keywords: tender.matched_keywords
+            ? tender.matched_keywords.split(",").map((k) => k.trim())
+            : [],
+          attachments: tender.attachments || [],
+          description: tender.description || "No description available",
+          source_url: tender.source_url,
+        }));
+        setTenderList(mappedTenders);
+      }
+
+      // Update sources
+      if (Array.isArray(sourcesData)) {
+        const mappedSources = sourcesData.map((source) => ({
+          name: source.name,
+          status: source.status || "UNKNOWN",
+          count: `${source.tenders_today || 0} new today`,
+          color:
+            source.status === "ACTIVE"
+              ? "green"
+              : source.status === "WARNING"
+              ? "orange"
+              : "red",
+        }));
+        setSources(mappedSources);
+      }
+
+      // Update sync info
+      const now = new Date();
+      setLastSyncAt(
+        now.toLocaleString("en-US", {
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+        })
+      );
+      setNextSyncIn("30 minutes");
+    } catch (err) {
+      console.error("Dashboard fetch error:", err);
+      setError(getErrorMessage(err, "Failed to load dashboard"));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchDashboard();
+  }, []);
 
   const unreadCount = notifications.filter((n) => !n.isRead).length;
 
@@ -442,22 +328,13 @@ const Dashboard = () => {
 
   const pageItems = getPageItems(totalPages, safePage);
 
-  const derivedStats = useMemo(
-    () => computeStatsFromData(tenderList, sources, notifications),
-    [tenderList, sources, notifications]
-  );
-  const resolvedStats =
-    stats && Object.keys(stats).length > 0
-      ? { ...derivedStats, ...stats }
-      : derivedStats;
-
   const getStatusBadgeClasses = (status) => {
     switch (safeStatus(status)) {
-      case "NEW":
+      case "new":
         return "bg-green-100 text-green-800";
-      case "VIEWED":
+      case "viewed":
         return "bg-gray-100 text-gray-600";
-      case "SAVED":
+      case "saved":
         return "bg-blue-100 text-blue-800";
       default:
         return "bg-gray-100 text-gray-600";
@@ -467,8 +344,6 @@ const Dashboard = () => {
   const getDaysLeftClass = (daysText) => {
     const days = parseInt(daysText, 10);
     if (Number.isNaN(days)) return "text-gray-500";
-    if (days <= 10) return "text-gray-500";
-    if (days <= 30) return "text-gray-500";
     return "text-gray-500";
   };
 
@@ -511,28 +386,77 @@ const Dashboard = () => {
     }
   };
 
-  const updateTenderStatus = (tenderId, status) => {
-    setTenderList((prev) =>
-      prev.map((tender) =>
-        tender.id === tenderId ? { ...tender, status } : tender
-      )
-    );
-    setSelectedTender((prev) =>
-      prev?.id === tenderId ? { ...prev, status } : prev
-    );
+  const updateTenderStatus = async (tenderId, status) => {
+    try {
+      // Update locally first
+      setTenderList((prev) =>
+        prev.map((tender) =>
+          tender.id === tenderId ? { ...tender, status } : tender
+        )
+      );
+      setSelectedTender((prev) =>
+        prev?.id === tenderId ? { ...prev, status } : prev
+      );
 
-    // TODO BACKEND: status update ke liye axios PATCH/PUT yaha lagega
-    // axios.patch(`/api/tenders/${tenderId}`, { status });
+      // Update on backend
+      await requestJson(DASHBOARD_ENDPOINTS.tenderUpdate(tenderId), {
+        method: "PATCH",
+        body: JSON.stringify({ status }),
+      });
+    } catch (err) {
+      console.error("Failed to update tender status:", err);
+      // Revert on error
+      fetchDashboard();
+    }
   };
 
-  const handleViewTender = (tender) => {
-    const nextStatus = tender.status === "SAVED" ? "SAVED" : "VIEWED";
-    updateTenderStatus(tender.id, nextStatus);
-    setSelectedTender(tender);
+  const handleViewTender = async (tender) => {
+    try {
+      // Fetch full tender details
+      const tenderData = await requestWithRetry(() =>
+        requestJson(DASHBOARD_ENDPOINTS.tenderDetail(tender.id))
+      );
+
+      const mappedTender = {
+        id: tenderData.id,
+        title: tenderData.title,
+        code: tenderData.reference_id,
+        agency: tenderData.agency_name || "N/A",
+        location: tenderData.agency_location || "N/A",
+        source: tenderData.source_name || "Unknown",
+        deadline: tenderData.deadline_date
+          ? new Date(tenderData.deadline_date).toLocaleDateString("en-US", {
+              month: "short",
+              day: "numeric",
+              year: "numeric",
+            })
+          : "N/A",
+        daysLeft: tenderData.days_until_deadline
+          ? `${tenderData.days_until_deadline} days left`
+          : "—",
+        status: safeStatus(tenderData.status),
+        keywords: tenderData.matched_keywords
+          ? tenderData.matched_keywords.split(",").map((k) => k.trim())
+          : [],
+        attachments: tenderData.attachments || [],
+        description: tenderData.description || "No description available",
+        source_url: tenderData.source_url,
+      };
+
+      setSelectedTender(mappedTender);
+
+      // Auto-update status to viewed if it was new
+      if (tenderData.status === "new") {
+        updateTenderStatus(tender.id, "viewed");
+      }
+    } catch (err) {
+      console.error("Failed to fetch tender details:", err);
+      setError(getErrorMessage(err, "Failed to load tender details"));
+    }
   };
 
   const handleToggleSave = (tender) => {
-    const nextStatus = tender.status === "SAVED" ? "VIEWED" : "SAVED";
+    const nextStatus = tender.status === "saved" ? "viewed" : "saved";
     updateTenderStatus(tender.id, nextStatus);
   };
 
@@ -557,40 +481,11 @@ const Dashboard = () => {
   };
 
   const handleSyncNow = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      const data =
-        (await requestWithRetry(() =>
-          requestJson(DASHBOARD_ENDPOINTS.sync, { method: "POST" })
-        )) || {};
-
-      setNotifications(data.notifications || []);
-      setTenderList(data.tenders || []);
-      setTopKeywords(data.topKeywords || []);
-      setSources(data.sources || []);
-      setLastSyncAt(data.lastSyncAt || new Date().toLocaleString());
-      setNextSyncIn(data.nextSyncIn || "—");
-      setStats(
-        data.stats ||
-          computeStatsFromData(
-            data.tenders || tenderList,
-            data.sources || sources,
-            data.notifications || notifications
-          )
-      );
-    } catch (err) {
-      console.error(err);
-      setError(getErrorMessage(err, "Failed to sync dashboard"));
-    } finally {
-      setLoading(false);
-    }
+    await fetchDashboard();
   };
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Main Content */}
       <div className="overflow-y-auto">
         {/* Header */}
         <div className="bg-white border-b border-gray-200 px-6 py-3">
@@ -628,7 +523,10 @@ const Dashboard = () => {
                 disabled={loading}
                 className="flex items-center gap-4 px-5 py-1.5 border border-gray-300 rounded-lg bg-white hover:bg-blue-400 text-sm font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                <RefreshCw size={18} className="text-gray-900 font-bold" />
+                <RefreshCw
+                  size={18}
+                  className={`text-gray-900 font-bold ${loading ? "animate-spin" : ""}`}
+                />
                 Sync Now
               </button>
 
@@ -745,11 +643,11 @@ const Dashboard = () => {
               <div>
                 <p className="text-sm text-gray-500">New Tenders Today</p>
                 <div className="text-3xl font-bold mt-1">
-                  {resolvedStats?.newTendersToday ?? 0}
+                  {stats.newTendersToday}
                 </div>
                 <div className="flex items-center gap-1 text-xs text-green-600 mt-1">
                   <TrendingUp size={12} />
-                  {resolvedStats?.trendNewTenders ?? 0}% from yesterday
+                  {stats.trendNewTenders}% from yesterday
                 </div>
               </div>
               <div className="p-2 bg-blue-100 rounded-lg">
@@ -763,11 +661,11 @@ const Dashboard = () => {
               <div>
                 <p className="text-sm text-gray-500">Keyword Matches</p>
                 <div className="text-3xl font-bold mt-1">
-                  {resolvedStats?.keywordMatches ?? 0}
+                  {stats.keywordMatches}
                 </div>
                 <div className="flex items-center gap-1 text-xs text-green-600 mt-1">
                   <TrendingUp size={12} />
-                  {resolvedStats?.trendKeywords ?? 0}% from yesterday
+                  {stats.trendKeywords}% from yesterday
                 </div>
               </div>
               <div className="p-2 bg-green-100 rounded-lg">
@@ -781,8 +679,7 @@ const Dashboard = () => {
               <div>
                 <p className="text-sm text-gray-500">Active Sources</p>
                 <div className="text-3xl font-bold mt-1">
-                  {resolvedStats?.activeSources?.active ?? 0}/
-                  {resolvedStats?.activeSources?.total ?? 0}
+                  {stats.activeSources.active}/{stats.activeSources.total}
                 </div>
               </div>
               <div className="p-2 bg-indigo-100 rounded-lg">
@@ -796,7 +693,7 @@ const Dashboard = () => {
               <div>
                 <p className="text-sm text-gray-500">Alerts Today</p>
                 <div className="text-3xl font-bold mt-1">
-                  {resolvedStats?.alertsToday ?? 0}
+                  {stats.alertsToday}
                 </div>
               </div>
               <div className="p-2 bg-orange-100 rounded-lg">
@@ -816,7 +713,8 @@ const Dashboard = () => {
               </h3>
 
               <span className="text-xs bg-blue-50 text-blue-600 px-3 py-1 rounded-full font-medium">
-                5 new today
+                {filteredTenders.filter((t) => t.status === "new").length} new
+                today
               </span>
             </div>
 
@@ -887,7 +785,7 @@ const Dashboard = () => {
                         </td>
                         <td className="px-3 py-2">
                           <span
-                            className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${getStatusBadgeClasses(
+                            className={`inline-block px-2 py-0.5 rounded text-xs font-medium uppercase ${getStatusBadgeClasses(
                               tender.status
                             )}`}
                           >
@@ -896,7 +794,7 @@ const Dashboard = () => {
                         </td>
                         <td className="px-3 py-2">
                           <div className="flex flex-wrap gap-2">
-                            {safeArray(tender.keywords).map((keyword, idx) => (
+                            {safeArray(tender.keywords).slice(0, 2).map((keyword, idx) => (
                               <span
                                 key={`${tender.id}-kw-${idx}`}
                                 className="bg-gray-100 px-3 py-1 rounded-full text-xs"
@@ -904,6 +802,11 @@ const Dashboard = () => {
                                 {keyword}
                               </span>
                             ))}
+                            {tender.keywords.length > 2 && (
+                              <span className="text-xs text-gray-500">
+                                +{tender.keywords.length - 2}
+                              </span>
+                            )}
                           </div>
                         </td>
                         <td className="px-3 py-2">
@@ -911,27 +814,14 @@ const Dashboard = () => {
                             <Eye
                               size={16}
                               className="hover:text-gray-900 cursor-pointer"
-                              onClick={() => {
-                                try {
-                                  if (!tender || !tender.id) {
-                                    throw new Error("Invalid tender data");
-                                  }
-                                  handleViewTender(tender);
-                                } catch (error) {
-                                  console.error(
-                                    "Tender selection failed:",
-                                    error
-                                  );
-                                  alert(
-                                    "Something went wrong. Please try again."
-                                  );
-                                }
-                              }}
+                              onClick={() => handleViewTender(tender)}
                             />
 
                             <Bookmark
                               size={16}
-                              className="hover:text-gray-900 cursor-pointer"
+                              className={`hover:text-gray-900 cursor-pointer ${
+                                tender.status === "saved" ? "fill-current text-blue-600" : ""
+                              }`}
                               onClick={() => handleToggleSave(tender)}
                             />
                             <MoreHorizontal
@@ -957,7 +847,7 @@ const Dashboard = () => {
                                 <button
                                   className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50"
                                   onClick={() => {
-                                    updateTenderStatus(tender.id, "VIEWED");
+                                    updateTenderStatus(tender.id, "viewed");
                                     setActiveActionsId(null);
                                   }}
                                 >
@@ -966,7 +856,7 @@ const Dashboard = () => {
                                 <button
                                   className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50"
                                   onClick={() => {
-                                    updateTenderStatus(tender.id, "NEW");
+                                    updateTenderStatus(tender.id, "new");
                                     setActiveActionsId(null);
                                   }}
                                 >
@@ -1056,28 +946,34 @@ const Dashboard = () => {
               <TrendingUp size={16} className="text-gray-400" />
             </div>
             <div className="p-4 space-y-10">
-              {topKeywords.map((keyword) => (
-                <div
-                  key={keyword.rank}
-                  className="flex items-center justify-between mb-3"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="text-gray-500 font-medium text-xs">
-                      {keyword.rank}.
-                    </span>
-                    <span className="text-sm font-medium text-gray-900">
-                      {keyword.name}
+              {topKeywords.length === 0 ? (
+                <div className="text-center text-sm text-gray-500 py-4">
+                  No keywords data available
+                </div>
+              ) : (
+                topKeywords.map((keyword) => (
+                  <div
+                    key={keyword.rank}
+                    className="flex items-center justify-between mb-3"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-gray-500 font-medium text-xs">
+                        {keyword.rank}.
+                      </span>
+                      <span className="text-sm font-medium text-gray-900">
+                        {keyword.name}
+                      </span>
+                    </div>
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-xs font-medium ${getKeywordBadgeClasses(
+                        keyword.color
+                      )}`}
+                    >
+                      {keyword.matches} matches
                     </span>
                   </div>
-                  <span
-                    className={`px-2 py-0.5 rounded-full text-xs font-medium ${getKeywordBadgeClasses(
-                      keyword.color
-                    )}`}
-                  >
-                    {keyword.matches} matches
-                  </span>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
         </div>
@@ -1092,33 +988,39 @@ const Dashboard = () => {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 p-4">
-              {sources.map((source, idx) => (
-                <div
-                  key={`${source.name}-${idx}`}
-                  className="border border-gray-200 rounded-lg p-3"
-                >
-                  <div className="flex items-center gap-1.5 mb-1.5">
-                    <div
-                      className={`w-1.5 h-1.5 rounded-full ${getSourceDotColor(
-                        source.color
-                      )}`}
-                    ></div>
-                    <span
-                      className={`text-xs font-semibold uppercase ${getSourceStatusColor(
-                        source.color
-                      )}`}
-                    >
-                      {source.status}
-                    </span>
-                  </div>
-                  <div className="font-medium text-gray-900 text-xs">
-                    {source.name}
-                  </div>
-                  <div className="text-xs text-gray-500 mt-0.5">
-                    {source.count}
-                  </div>
+              {sources.length === 0 ? (
+                <div className="col-span-full text-center text-sm text-gray-500 py-4">
+                  No sources configured
                 </div>
-              ))}
+              ) : (
+                sources.map((source, idx) => (
+                  <div
+                    key={`${source.name}-${idx}`}
+                    className="border border-gray-200 rounded-lg p-3"
+                  >
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <div
+                        className={`w-1.5 h-1.5 rounded-full ${getSourceDotColor(
+                          source.color
+                        )}`}
+                      ></div>
+                      <span
+                        className={`text-xs font-semibold uppercase ${getSourceStatusColor(
+                          source.color
+                        )}`}
+                      >
+                        {source.status}
+                      </span>
+                    </div>
+                    <div className="font-medium text-gray-900 text-xs">
+                      {source.name}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-0.5">
+                      {source.count}
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
@@ -1135,7 +1037,7 @@ const Dashboard = () => {
           <div className="flex items-start justify-between p-5 border-b">
             <div>
               <span
-                className={`text-xs px-2 py-0.5 rounded-full ${getStatusBadgeClasses(
+                className={`text-xs px-2 py-0.5 rounded-full uppercase ${getStatusBadgeClasses(
                   selectedTender.status
                 )}`}
               >
@@ -1158,7 +1060,7 @@ const Dashboard = () => {
           </div>
 
           {/* Body */}
-          <div className="p-5 space-y-5 text-sm">
+          <div className="p-5 space-y-5 text-sm overflow-y-auto h-[calc(100%-100px)]">
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <p className="text-xs text-gray-500">Agency</p>
@@ -1176,31 +1078,32 @@ const Dashboard = () => {
               <div>
                 <p className="text-xs text-gray-500">Deadline</p>
                 <p className="font-medium">{selectedTender.deadline}</p>
+                <p className="text-xs text-gray-500">{selectedTender.daysLeft}</p>
               </div>
             </div>
 
             {/* Keywords */}
-            <div>
-              <p className="text-xs text-gray-500 mb-2">Keyword Matches</p>
-              <div className="flex flex-wrap gap-2">
-                {safeArray(selectedTender.keywords).map((k, i) => (
-                  <span
-                    key={`${selectedTender.id}-kw-${i}`}
-                    className="bg-blue-50 text-blue-600 px-3 py-1 rounded-full text-xs"
-                  >
-                    {k}
-                  </span>
-                ))}
+            {selectedTender.keywords.length > 0 && (
+              <div>
+                <p className="text-xs text-gray-500 mb-2">Keyword Matches</p>
+                <div className="flex flex-wrap gap-2">
+                  {safeArray(selectedTender.keywords).map((k, i) => (
+                    <span
+                      key={`${selectedTender.id}-kw-${i}`}
+                      className="bg-blue-50 text-blue-600 px-3 py-1 rounded-full text-xs"
+                    >
+                      {k}
+                    </span>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Description */}
             <div>
               <p className="text-xs text-gray-500 mb-1">Description</p>
               <p className="text-gray-700 text-sm leading-relaxed">
-                Seeking qualified contractors for comprehensive IT
-                infrastructure modernization across federal facilities
-                nationwide.
+                {selectedTender.description}
               </p>
             </div>
 
@@ -1229,9 +1132,16 @@ const Dashboard = () => {
             </div>
 
             {/* Button */}
-            <button className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg text-sm mt-4">
-              View on SAM.gov
-            </button>
+            {selectedTender.source_url && (
+              <a
+                href={selectedTender.source_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg text-sm mt-4 text-center"
+              >
+                View on {selectedTender.source}
+              </a>
+            )}
           </div>
         </div>
       )}
