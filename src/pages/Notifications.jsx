@@ -1,4 +1,11 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+  memo,
+} from "react";
 import { Bell, Mail, Trash2, Clock, Plus, X } from "lucide-react";
 import { getErrorMessage, requestJson, requestWithRetry } from "../utils/api";
 
@@ -20,7 +27,10 @@ export default function Notifications() {
   const [desktop, setDesktop] = useState(true);
   const [email, setEmail] = useState(true);
   const [silent, setSilent] = useState(true);
-  const [emailList, setEmailList] = useState(["john.doe@company.com", "tender.team@company.com"]);
+  const [emailList, setEmailList] = useState([
+    "john.doe@company.com",
+    "tender.team@company.com",
+  ]);
   const [newEmail, setNewEmail] = useState("");
   const [startTime, setStartTime] = useState("22:00");
   const [endTime, setEndTime] = useState("07:00");
@@ -31,9 +41,12 @@ export default function Notifications() {
   const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS);
   const notificationMenuRef = useRef(null);
 
-  const safeEmailList = Array.isArray(emailList) ? emailList : [];
+  const safeEmailList = useMemo(
+    () => (Array.isArray(emailList) ? emailList : []),
+    [emailList]
+  );
 
-  const fetchSettings = async () => {
+  const fetchSettings = useCallback(async () => {
     if (USE_MOCK_NOTIFICATIONS) return; // TODO BACKEND: mock delete karke API call enable hoga
     try {
       setLoading(true);
@@ -61,13 +74,13 @@ export default function Notifications() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchSettings();
-  }, []);
+  }, [fetchSettings]);
 
-  const fetchNotifications = async () => {
+  const fetchNotifications = useCallback(async () => {
     if (USE_MOCK_NOTIFICATIONS) return; // TODO BACKEND: mock hata ke API se data aayega
     try {
       setError(null);
@@ -82,11 +95,11 @@ export default function Notifications() {
       console.error(err);
       setError(getErrorMessage(err, "Failed to load notifications"));
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchNotifications();
-  }, []);
+  }, [fetchNotifications]);
 
   useEffect(() => {
     if (!showNotifications) return;
@@ -115,18 +128,21 @@ export default function Notifications() {
     };
   }, [showNotifications]);
 
-  const handleAddEmail = () => {
+  const handleAddEmail = useCallback(() => {
     if (newEmail.trim() && newEmail.includes("@")) {
       setEmailList([...emailList, newEmail.trim()]);
       setNewEmail("");
     }
-  };
+  }, [emailList, newEmail]);
 
-  const handleRemoveEmail = (indexToRemove) => {
-    setEmailList(emailList.filter((_, index) => index !== indexToRemove));
-  };
+  const handleRemoveEmail = useCallback(
+    (indexToRemove) => {
+      setEmailList(emailList.filter((_, index) => index !== indexToRemove));
+    },
+    [emailList]
+  );
 
-  const handleSaveChanges = () => {
+  const handleSaveChanges = useCallback(() => {
     setError(null);
     setShowSaveNotification(true);
     setTimeout(() => {
@@ -155,37 +171,40 @@ export default function Notifications() {
       .finally(() => {
         setLoading(false);
       });
-  };
+  }, [desktop, email, endTime, safeEmailList, silent, startTime]);
 
-  const unreadCount = notifications.filter((n) => !n.isRead).length;
+  const unreadCount = useMemo(
+    () => notifications.filter((n) => !n.isRead).length,
+    [notifications]
+  );
 
-  const handleToggleNotifications = () => {
+  const handleToggleNotifications = useCallback(() => {
     setShowNotifications((prev) => !prev);
-  };
+  }, []);
 
-  const handleMarkAllRead = () => {
+  const handleMarkAllRead = useCallback(() => {
     setNotifications((list) => list.map((n) => ({ ...n, isRead: true })));
-  };
+  }, []);
 
-  const handleClearNotifications = () => {
+  const handleClearNotifications = useCallback(() => {
     setNotifications([]);
-  };
+  }, []);
 
-  const handleNotificationClick = (id) => {
+  const handleNotificationClick = useCallback((id) => {
     setNotifications((list) =>
       list.map((n) => (n.id === id ? { ...n, isRead: true } : n))
     );
-  };
+  }, []);
 
-  const handleRemoveNotification = (id) => {
+  const handleRemoveNotification = useCallback((id) => {
     setNotifications((list) => list.filter((n) => n.id !== id));
-  };
+  }, []);
 
   return (
-    <div className="relative bg-[#F8FAFC] min-h-screen">
+    <div className="relative bg-[#F8FAFC] min-h-full">
       {/* STICKY HEADER */}
       <div className="sticky top-0 z-20 bg-[#F8FAFC]">
-        <div className="flex items-center justify-between px-8 py-6">
+        <div className="flex flex-col gap-4 px-4 py-6 sm:flex-row sm:items-center sm:justify-between sm:px-8">
           <div>
             <h1 className="text-xl font-semibold text-[#0F172A]">
               Notification Settings
@@ -251,9 +270,7 @@ export default function Notifications() {
                       key={n.id}
                       onClick={() => handleNotificationClick(n.id)}
                       className={`flex items-start justify-between gap-2 px-4 py-2 text-xs border-b last:border-b-0 cursor-pointer ${
-                        n.isRead
-                          ? "text-gray-500"
-                          : "text-gray-900 font-medium"
+                        n.isRead ? "text-gray-500" : "text-gray-900 font-medium"
                       }`}
                     >
                       <span className="flex-1">{n.message}</span>
@@ -279,19 +296,19 @@ export default function Notifications() {
       </div>
 
       {loading && (
-        <div className="mx-8 mt-4 text-sm text-gray-500 flex items-center gap-2">
+        <div className="mx-4 mt-4 text-sm text-gray-500 flex items-center gap-2 sm:mx-8">
           <span className="animate-spin h-4 w-4 border-2 border-gray-300 border-t-transparent rounded-full"></span>
           Loading notification settings...
         </div>
       )}
       {error && (
-        <div className="mx-8 mt-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+        <div className="mx-4 mt-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm sm:mx-8">
           {error}
         </div>
       )}
 
       {/* CONTENT — CENTERED */}
-      <div className="px-8 py-6 flex justify-center">
+      <div className="px-4 py-6 flex justify-center sm:px-8">
         <div className="w-full max-w-[880px] space-y-6">
           {/* Desktop Notifications */}
           <Card>
@@ -318,7 +335,7 @@ export default function Notifications() {
               Email Recipients
             </p>
 
-            <div className="flex gap-2 mb-3">
+            <div className="flex flex-col gap-2 mb-3 sm:flex-row">
               <input
                 value={newEmail}
                 onChange={(e) => setNewEmail(e.target.value)}
@@ -355,9 +372,7 @@ export default function Notifications() {
 
           {/* Alert Triggers */}
           <Card>
-            <h3 className="font-medium text-[#0F172A] mb-1">
-              Alert Triggers
-            </h3>
+            <h3 className="font-medium text-[#0F172A] mb-1">Alert Triggers</h3>
             <p className="text-sm text-[#64748B] mb-4">
               Choose which events trigger notifications
             </p>
@@ -394,8 +409,16 @@ export default function Notifications() {
             </Row>
 
             <div className="mt-4 grid grid-cols-2 gap-4">
-              <FigmaTimeInput label="Start Time" value={startTime} onChange={setStartTime} />
-              <FigmaTimeInput label="End Time" value={endTime} onChange={setEndTime} />
+              <FigmaTimeInput
+                label="Start Time"
+                value={startTime}
+                onChange={setStartTime}
+              />
+              <FigmaTimeInput
+                label="End Time"
+                value={endTime}
+                onChange={setEndTime}
+              />
             </div>
           </Card>
 
@@ -411,15 +434,29 @@ export default function Notifications() {
 
       {/* Save Notification Toast */}
       {showSaveNotification && (
-        <div className="fixed bottom-8 right-8 bg-white rounded-lg shadow-lg p-4 flex items-start gap-3 min-w-[320px] z-50 border border-gray-200">
+        <div className="fixed bottom-4 right-4 bg-white rounded-lg shadow-lg p-4 flex items-start gap-3 w-[calc(100vw-2rem)] max-w-[320px] z-50 border border-gray-200 sm:bottom-8 sm:right-8">
           <div className="flex h-8 w-8 items-center justify-center rounded-full bg-green-100">
-            <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            <svg
+              className="w-5 h-5 text-green-600"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M5 13l4 4L19 7"
+              />
             </svg>
           </div>
           <div className="flex-1">
-            <h4 className="font-semibold text-sm text-[#0F172A]">Settings saved</h4>
-            <p className="text-sm text-[#64748B] mt-0.5">Your notification preferences have been updated.</p>
+            <h4 className="font-semibold text-sm text-[#0F172A]">
+              Settings saved
+            </h4>
+            <p className="text-sm text-[#64748B] mt-0.5">
+              Your notification preferences have been updated.
+            </p>
           </div>
         </div>
       )}
@@ -429,15 +466,15 @@ export default function Notifications() {
 
 /* ---------- UI HELPERS ---------- */
 
-function Card({ children }) {
+const Card = memo(function Card({ children }) {
   return (
     <div className="rounded-2xl bg-white p-6 shadow-[0_1px_2px_rgba(16,24,40,0.05),0_1px_3px_rgba(16,24,40,0.1)]">
       {children}
     </div>
   );
-}
+});
 
-function Row({ icon, title, desc, children }) {
+const Row = memo(function Row({ icon, title, desc, children }) {
   return (
     <div className="flex items-center gap-4">
       <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 text-blue-500">
@@ -450,9 +487,9 @@ function Row({ icon, title, desc, children }) {
       {children}
     </div>
   );
-}
+});
 
-function Toggle({ checked, onChange }) {
+const Toggle = memo(function Toggle({ checked, onChange }) {
   return (
     <button
       onClick={() => onChange(!checked)}
@@ -466,9 +503,13 @@ function Toggle({ checked, onChange }) {
       />
     </button>
   );
-}
+});
 
-function FigmaTimeInput({ label, value, onChange }) {
+const FigmaTimeInput = memo(function FigmaTimeInput({
+  label,
+  value,
+  onChange,
+}) {
   const [isEditing, setIsEditing] = useState(false);
   const inputRef = React.useRef(null);
 
@@ -503,9 +544,9 @@ function FigmaTimeInput({ label, value, onChange }) {
         ) : (
           <>
             <span className="text-sm text-[#0F172A]">{value}</span>
-            <Clock 
-              size={16} 
-              className="text-[#94A3B8] cursor-pointer hover:text-[#64748B]" 
+            <Clock
+              size={16}
+              className="text-[#94A3B8] cursor-pointer hover:text-[#64748B]"
               onClick={handleClockClick}
             />
           </>
@@ -513,4 +554,4 @@ function FigmaTimeInput({ label, value, onChange }) {
       </div>
     </div>
   );
-}
+});

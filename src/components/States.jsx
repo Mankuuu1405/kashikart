@@ -1,15 +1,17 @@
-import React from "react";
+import React, { memo } from "react";
 
-export function LoadingState({ message = "Loading..." }) {
+export const LoadingState = memo(function LoadingState({
+  message = "Loading...",
+}) {
   return (
     <div className="flex items-center gap-2 text-sm text-gray-500">
       <span className="animate-spin h-4 w-4 border-2 border-gray-300 border-t-transparent rounded-full"></span>
       {message}
     </div>
   );
-}
+});
 
-export function ErrorState({
+export const ErrorState = memo(function ErrorState({
   message = "Something went wrong.",
   onRetry,
   className = "",
@@ -30,9 +32,9 @@ export function ErrorState({
       ) : null}
     </div>
   );
-}
+});
 
-export function EmptyState({
+export const EmptyState = memo(function EmptyState({
   title = "No data found",
   message = "There is nothing to show right now.",
   className = "",
@@ -45,4 +47,4 @@ export function EmptyState({
       <div className="mt-2 text-xs text-gray-500">{message}</div>
     </div>
   );
-}
+});

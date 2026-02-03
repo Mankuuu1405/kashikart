@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Calendar, Mail, Save, User, Lock, Upload, X } from "lucide-react";
 import { getErrorMessage, requestJson, requestWithRetry } from "../utils/api";
 
@@ -19,19 +19,19 @@ export default function ProfilePage() {
     avatar: "",
     role: "",
     joinedDate: "",
-    emailVerified: false
+    emailVerified: false,
   });
 
   const [personalInfo, setPersonalInfo] = useState({
     fullName: "",
     email: "",
-    phone: ""
+    phone: "",
   });
 
   const [securityInfo, setSecurityInfo] = useState({
     currentPassword: "",
     newPassword: "",
-    confirmPassword: ""
+    confirmPassword: "",
   });
 
   const [loading, setLoading] = useState(false);
@@ -53,12 +53,12 @@ export default function ProfilePage() {
         ...prev,
         fullName: storedName || prev.fullName,
         email: storedEmail || prev.email,
-        avatar: (storedName || prev.fullName)?.charAt(0)?.toUpperCase() || "U"
+        avatar: (storedName || prev.fullName)?.charAt(0)?.toUpperCase() || "U",
       }));
       setPersonalInfo((prev) => ({
         ...prev,
         fullName: storedName || prev.fullName,
-        email: storedEmail || prev.email
+        email: storedEmail || prev.email,
       }));
     }
   }, []);
@@ -84,7 +84,7 @@ export default function ProfilePage() {
         avatar: "V",
         role: "Admin",
         joinedDate: "January 2024",
-        emailVerified: true
+        emailVerified: true,
       };
 
       const data = USE_MOCK_PROFILE
@@ -100,39 +100,47 @@ export default function ProfilePage() {
         ...mockData,
         fullName: finalName,
         email: finalEmail,
-        avatar: finalName?.charAt(0)?.toUpperCase() || "U"
+        avatar: finalName?.charAt(0)?.toUpperCase() || "U",
       });
       setPersonalInfo({
         fullName: finalName,
         email: finalEmail,
-        phone: mockData.phone
+        phone: mockData.phone,
       });
       localStorage.setItem("profileName", finalName || "");
       localStorage.setItem("profileEmail", finalEmail || "");
       window.dispatchEvent(new Event("profileInfoUpdated"));
     } catch (error) {
       console.error("Error fetching user data:", error);
-      setError(getErrorMessage(error, "Unable to load profile details right now."));
+      setError(
+        getErrorMessage(error, "Unable to load profile details right now.")
+      );
     } finally {
       setLoading(false);
     }
   };
 
-  const handlePersonalInfoChange = (e) => {
-    setPersonalInfo({
-      ...personalInfo,
-      [e.target.name]: e.target.value
-    });
-  };
+  const handlePersonalInfoChange = useCallback(
+    (e) => {
+      setPersonalInfo({
+        ...personalInfo,
+        [e.target.name]: e.target.value,
+      });
+    },
+    [personalInfo]
+  );
 
-  const handleSecurityChange = (e) => {
-    setSecurityInfo({
-      ...securityInfo,
-      [e.target.name]: e.target.value
-    });
-  };
+  const handleSecurityChange = useCallback(
+    (e) => {
+      setSecurityInfo({
+        ...securityInfo,
+        [e.target.name]: e.target.value,
+      });
+    },
+    [securityInfo]
+  );
 
-  const handleSaveChanges = async () => {
+  const handleSaveChanges = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -145,12 +153,12 @@ export default function ProfilePage() {
           })
         );
       }
-      
+
       // Update local state after successful save
-      setUserData({ 
-        ...userData, 
+      setUserData({
+        ...userData,
         ...personalInfo,
-        avatar: personalInfo.fullName?.charAt(0).toUpperCase() || "U"
+        avatar: personalInfo.fullName?.charAt(0).toUpperCase() || "U",
       });
       localStorage.setItem("profileName", personalInfo.fullName || "");
       localStorage.setItem("profileEmail", personalInfo.email || "");
@@ -163,9 +171,9 @@ export default function ProfilePage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [personalInfo, userData]);
 
-  const handleUpdatePassword = async () => {
+  const handleUpdatePassword = useCallback(async () => {
     if (securityInfo.newPassword !== securityInfo.confirmPassword) {
       alert("Passwords do not match!");
       return;
@@ -191,12 +199,12 @@ export default function ProfilePage() {
           })
         );
       }
-      
+
       // Clear password fields after successful update
       setSecurityInfo({
         currentPassword: "",
         newPassword: "",
-        confirmPassword: ""
+        confirmPassword: "",
       });
       alert("Password updated successfully!");
     } catch (error) {
@@ -206,9 +214,9 @@ export default function ProfilePage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [securityInfo]);
 
-  const handlePhotoUpload = (e) => {
+  const handlePhotoUpload = useCallback((e) => {
     const file = e.target.files[0];
     if (file) {
       // Create preview URL
@@ -219,16 +227,16 @@ export default function ProfilePage() {
         setShowPhotoMenu(false);
         localStorage.setItem("profilePhoto", reader.result);
         window.dispatchEvent(new Event("profilePhotoUpdated"));
-        
+
         // Here you would upload to your backend
         console.log("Uploading photo:", file);
         alert("Photo uploaded successfully!");
       };
       reader.readAsDataURL(file);
     }
-  };
+  }, []);
 
-  const handleRemovePhoto = () => {
+  const handleRemovePhoto = useCallback(() => {
     // Handle photo removal logic here
     console.log("Removing photo");
     setPhotoPreview(null);
@@ -237,7 +245,7 @@ export default function ProfilePage() {
     localStorage.removeItem("profilePhoto");
     window.dispatchEvent(new Event("profilePhotoUpdated"));
     alert("Photo removed successfully!");
-  };
+  }, []);
 
   if (loading && !userData.id) {
     return (
@@ -251,16 +259,18 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-full bg-gray-50">
       {/* Page Header */}
-      <div className="bg-white border-b border-gray-200 px-8 py-6 mb-8">
+      <div className="bg-white border-b border-gray-200 px-4 py-6 mb-8 sm:px-8">
         <div className="max-w-6xl mx-auto">
           <h1 className="text-3xl font-semibold text-gray-900">Profile</h1>
-          <p className="text-gray-500 text-sm mt-1">Manage your account settings</p>
+          <p className="text-gray-500 text-sm mt-1">
+            Manage your account settings
+          </p>
         </div>
       </div>
 
-      <div className="max-w-6xl mx-auto px-8">
+      <div className="max-w-6xl mx-auto px-4 sm:px-8">
         {error && (
           <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             {error}
@@ -274,9 +284,9 @@ export default function ProfilePage() {
                 {/* Profile Photo with Menu */}
                 <div className="relative inline-block mb-4">
                   {photoPreview ? (
-                    <img 
-                      src={photoPreview} 
-                      alt="Profile" 
+                    <img
+                      src={photoPreview}
+                      alt="Profile"
                       className="w-28 h-28 rounded-full object-cover shadow-lg"
                     />
                   ) : (
@@ -284,9 +294,9 @@ export default function ProfilePage() {
                       {userData.avatar || userData.fullName?.charAt(0) || "U"}
                     </div>
                   )}
-                  
+
                   {/* Photo Upload Button */}
-                  <button 
+                  <button
                     onClick={() => setShowPhotoMenu(!showPhotoMenu)}
                     className="absolute bottom-0 right-0 bg-[#2b7fff] p-2 rounded-full text-white hover:bg-[#1a6eef] shadow-lg transition-all"
                   >
@@ -298,28 +308,34 @@ export default function ProfilePage() {
                     <div className="absolute top-full right-0 mt-2 bg-white rounded-lg shadow-xl border border-gray-200 py-2 w-48 z-10">
                       <label className="flex items-center gap-3 px-4 py-2 hover:bg-gray-50 cursor-pointer transition-colors">
                         <Upload className="w-4 h-4 text-gray-600" />
-                        <span className="text-sm text-gray-700">Upload Photo</span>
-                        <input 
-                          type="file" 
-                          accept="image/*" 
-                          className="hidden" 
+                        <span className="text-sm text-gray-700">
+                          Upload Photo
+                        </span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
                           onChange={handlePhotoUpload}
                         />
                       </label>
                       {hasCustomPhoto && (
-                        <button 
+                        <button
                           onClick={handleRemovePhoto}
                           className="flex items-center gap-3 px-4 py-2 hover:bg-gray-50 w-full text-left transition-colors"
                         >
                           <X className="w-4 h-4 text-red-600" />
-                          <span className="text-sm text-red-600">Remove Photo</span>
+                          <span className="text-sm text-red-600">
+                            Remove Photo
+                          </span>
                         </button>
                       )}
                     </div>
                   )}
                 </div>
 
-                <h2 className="text-xl font-bold text-gray-900 mb-1">{userData.fullName}</h2>
+                <h2 className="text-xl font-bold text-gray-900 mb-1">
+                  {userData.fullName}
+                </h2>
                 <p className="text-sm text-gray-500 mb-4">{userData.email}</p>
                 <span className="inline-block px-4 py-1.5 bg-[#2b7fff] text-white rounded-full text-sm font-medium">
                   {userData.role}
@@ -330,15 +346,25 @@ export default function ProfilePage() {
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-gray-600">Status</span>
                   <span className="flex items-center gap-1 text-green-600 font-medium">
-                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    <svg
+                      className="w-4 h-4"
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                        clipRule="evenodd"
+                      />
                     </svg>
                     Verified
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-gray-600">Member Since</span>
-                  <span className="text-gray-900 font-medium">{userData.joinedDate}</span>
+                  <span className="text-gray-900 font-medium">
+                    {userData.joinedDate}
+                  </span>
                 </div>
               </div>
             </div>
@@ -352,12 +378,16 @@ export default function ProfilePage() {
                 <div className="p-2 bg-[#2b7fff]/10 rounded-lg">
                   <User className="w-5 h-5 text-[#2b7fff]" />
                 </div>
-                <h3 className="text-lg font-semibold text-gray-900">Personal Information</h3>
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Personal Information
+                </h3>
               </div>
               <div className="space-y-4">
                 <div className="grid md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Full Name</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Full Name
+                    </label>
                     <input
                       type="text"
                       name="fullName"
@@ -367,7 +397,9 @@ export default function ProfilePage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Email Address</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Email Address
+                    </label>
                     <input
                       type="email"
                       name="email"
@@ -378,7 +410,9 @@ export default function ProfilePage() {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Phone Number</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Phone Number
+                  </label>
                   <input
                     type="tel"
                     name="phone"
@@ -389,7 +423,7 @@ export default function ProfilePage() {
                   />
                 </div>
                 <div className="pt-2">
-                  <button 
+                  <button
                     onClick={handleSaveChanges}
                     disabled={loading}
                     className="w-full px-6 py-2.5 bg-[#2b7fff] text-white rounded-lg hover:bg-[#1a6eef] font-medium flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition"
@@ -407,11 +441,15 @@ export default function ProfilePage() {
                 <div className="p-2 bg-[#2b7fff]/10 rounded-lg">
                   <Lock className="w-5 h-5 text-[#2b7fff]" />
                 </div>
-                <h3 className="text-lg font-semibold text-gray-900">Privacy Settings</h3>
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Privacy Settings
+                </h3>
               </div>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Current Password</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Current Password
+                  </label>
                   <input
                     type="password"
                     name="currentPassword"
@@ -423,7 +461,9 @@ export default function ProfilePage() {
                 </div>
                 <div className="grid md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">New Password</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      New Password
+                    </label>
                     <input
                       type="password"
                       name="newPassword"
@@ -434,7 +474,9 @@ export default function ProfilePage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Confirm Password</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Confirm Password
+                    </label>
                     <input
                       type="password"
                       name="confirmPassword"
@@ -446,7 +488,7 @@ export default function ProfilePage() {
                   </div>
                 </div>
                 <div className="pt-2">
-                  <button 
+                  <button
                     onClick={handleUpdatePassword}
                     disabled={loading}
                     className="w-full px-6 py-2.5 bg-[#2b7fff] text-white rounded-lg hover:bg-[#1a6eef] font-medium disabled:opacity-50 disabled:cursor-not-allowed transition"

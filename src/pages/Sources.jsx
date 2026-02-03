@@ -1,5 +1,22 @@
-import React, { useState, useEffect, useRef } from "react";
-import { Search, Plus, ExternalLink, Globe, Lock, RefreshCw, Edit, Bell, X } from "lucide-react";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+  memo,
+} from "react";
+import {
+  Search,
+  Plus,
+  ExternalLink,
+  Globe,
+  Lock,
+  RefreshCw,
+  Edit,
+  Bell,
+  X,
+} from "lucide-react";
 import { EmptyState } from "../components/States";
 import { getErrorMessage, requestJson, requestWithRetry } from "../utils/api";
 
@@ -19,6 +36,102 @@ const INITIAL_NOTIFICATIONS = [
   { id: 3, message: "Source disabled: EPA Portal", isRead: true },
 ];
 
+const getStatusColor = (status) => {
+  switch (status) {
+    case "Active":
+      return "bg-green-100 text-green-700";
+    case "Error":
+      return "bg-red-100 text-red-700";
+    case "Disabled":
+      return "bg-gray-100 text-gray-700";
+    default:
+      return "bg-gray-100 text-gray-700";
+  }
+};
+
+const SourceRow = memo(function SourceRow({
+  source,
+  onToggle,
+  onRefresh,
+  onEdit,
+}) {
+  return (
+    <tr className="hover:bg-gray-50 transition">
+      <td className="px-6 py-4 text-sm font-medium text-gray-900">
+        {source.name}
+      </td>
+      <td className="px-6 py-4">
+        <a
+          href={source.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-sm text-[#3c83f6] hover:text-[#2563eb] flex items-center gap-1.5"
+        >
+          {source.url}
+          <ExternalLink size={13} />
+        </a>
+      </td>
+      <td className="px-6 py-4">
+        <div className="flex items-center gap-2 text-sm">
+          {source.isPublic ? (
+            <>
+              <Globe size={16} className="text-gray-500" />
+              <span className="text-gray-700">Public</span>
+            </>
+          ) : (
+            <>
+              <Lock size={16} className="text-yellow-600" />
+              <span className="text-yellow-600 font-medium">Required</span>
+            </>
+          )}
+        </div>
+      </td>
+      <td className="px-6 py-4">
+        <span
+          className={`inline-block px-2.5 py-1 rounded-full text-xs font-medium ${getStatusColor(
+            source.status
+          )}`}
+        >
+          {source.status}
+        </span>
+      </td>
+      <td className="px-6 py-4 text-sm text-gray-700">{source.lastFetch}</td>
+      <td className="px-6 py-4 text-sm font-semibold text-gray-900">
+        {source.tenders}
+      </td>
+      <td className="px-6 py-4">
+        <div className="flex items-center gap-3">
+          {source.status !== "Disabled" && (
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={source.isEnabled}
+                onChange={() => onToggle(source.id)}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#3c83f6]"></div>
+            </label>
+          )}
+          <button
+            onClick={() => onRefresh(source.id)}
+            className="text-gray-500 hover:text-[#3c83f6] transition"
+            title="Refresh"
+          >
+            <RefreshCw size={18} />
+          </button>
+          <button
+            onClick={() => onEdit(source.id)}
+            className="text-gray-500 hover:text-[#3c83f6] transition"
+            title="Edit"
+          >
+            <Edit size={18} />
+          </button>
+        </div>
+      </td>
+    </tr>
+  );
+});
+
 export default function Sources() {
   const [sources, setSources] = useState([
     {
@@ -30,7 +143,7 @@ export default function Sources() {
       lastFetch: "2026-01-01 08:30",
       tenders: 1247,
       isPublic: true,
-      isEnabled: true
+      isEnabled: true,
     },
     {
       id: 2,
@@ -41,7 +154,7 @@ export default function Sources() {
       lastFetch: "2026-01-01 08:25",
       tenders: 342,
       isPublic: false,
-      isEnabled: true
+      isEnabled: true,
     },
     {
       id: 3,
@@ -52,7 +165,7 @@ export default function Sources() {
       lastFetch: "2026-01-01 08:20",
       tenders: 189,
       isPublic: false,
-      isEnabled: true
+      isEnabled: true,
     },
     {
       id: 4,
@@ -63,7 +176,7 @@ export default function Sources() {
       lastFetch: "2026-01-01 08:15",
       tenders: 156,
       isPublic: false,
-      isEnabled: true
+      isEnabled: true,
     },
     {
       id: 5,
@@ -74,7 +187,7 @@ export default function Sources() {
       lastFetch: "2025-12-31 22:00",
       tenders: 98,
       isPublic: true,
-      isEnabled: false
+      isEnabled: false,
     },
     {
       id: 6,
@@ -85,7 +198,7 @@ export default function Sources() {
       lastFetch: "2026-01-01 08:10",
       tenders: 134,
       isPublic: false,
-      isEnabled: true
+      isEnabled: true,
     },
     {
       id: 7,
@@ -96,7 +209,7 @@ export default function Sources() {
       lastFetch: "2026-01-01 08:05",
       tenders: 567,
       isPublic: false,
-      isEnabled: true
+      isEnabled: true,
     },
     {
       id: 8,
@@ -107,8 +220,8 @@ export default function Sources() {
       lastFetch: "2025-12-20 14:00",
       tenders: 45,
       isPublic: true,
-      isEnabled: false
-    }
+      isEnabled: false,
+    },
   ]);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -124,11 +237,12 @@ export default function Sources() {
   const notificationMenuRef = useRef(null);
   const [formData, setFormData] = useState({
     name: "",
+    excelPath: "",
     url: "",
-    loginType: "Public"
+    loginType: "Public",
   });
 
-  const fetchSources = async () => {
+  const fetchSources = useCallback(async () => {
     if (USE_MOCK_SOURCES) return; // TODO BACKEND: mock delete karke API call enable hoga
     try {
       setLoading(true);
@@ -149,13 +263,13 @@ export default function Sources() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchSources();
-  }, []);
+  }, [fetchSources]);
 
-  const fetchNotifications = async () => {
+  const fetchNotifications = useCallback(async () => {
     if (USE_MOCK_NOTIFICATIONS) return; // TODO BACKEND: mock hata ke API se data aayega
     try {
       setError(null);
@@ -170,11 +284,11 @@ export default function Sources() {
       console.error(err);
       setError(getErrorMessage(err, "Failed to load notifications"));
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchNotifications();
-  }, []);
+  }, [fetchNotifications]);
 
   useEffect(() => {
     if (!showNotifications) return;
@@ -203,194 +317,218 @@ export default function Sources() {
     };
   }, [showNotifications]);
 
-  const getStatusColor = (status) => {
-    switch(status) {
-      case "Active": return "bg-green-100 text-green-700";
-      case "Error": return "bg-red-100 text-red-700";
-      case "Disabled": return "bg-gray-100 text-gray-700";
-      default: return "bg-gray-100 text-gray-700";
-    }
-  };
-
-  const handleInputChange = (e) => {
+  const handleInputChange = useCallback((e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
-      [name]: value
+      [name]: value,
     }));
-  };
+  }, []);
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    
-    const newSource = {
-      id: sources.length + 1,
-      name: formData.name,
-      url: formData.url,
-      login: formData.loginType,
-      status: "Active",
-      lastFetch: new Date().toLocaleString('en-US', { 
-        year: 'numeric', 
-        month: '2-digit', 
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false 
-      }).replace(',', ''),
-      tenders: 0,
-      isPublic: formData.loginType === "Public",
-      isEnabled: true
-    };
+  const handleSubmit = useCallback(
+    (e) => {
+      e.preventDefault();
 
-    setSources(prev => [...prev, newSource]);
+      const newSource = {
+        id: sources.length + 1,
+        name: formData.name,
+        url: formData.url,
+        excelPath: formData.excelPath,
+        login: formData.loginType,
+        status: "Active",
+        lastFetch: new Date()
+          .toLocaleString("en-US", {
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+          })
+          .replace(",", ""),
+        tenders: 0,
+        isPublic: formData.loginType === "Public",
+        isEnabled: true,
+      };
+
+      setSources((prev) => [...prev, newSource]);
+      setIsModalOpen(false);
+      setFormData({
+        name: "",
+        excelPath: "",
+        url: "",
+        loginType: "Public",
+      });
+    },
+    [formData, sources.length]
+  );
+
+  const handleCloseModal = useCallback(() => {
     setIsModalOpen(false);
     setFormData({
       name: "",
+      excelPath: "",
       url: "",
-      loginType: "Public"
+      loginType: "Public",
     });
-  };
+  }, []);
 
-  const handleCloseModal = () => {
-    setIsModalOpen(false);
-    setFormData({
-      name: "",
-      url: "",
-      loginType: "Public"
-    });
-  };
-
-  const handleToggle = (id) => {
-    setSources(prev => prev.map(source => 
-      source.id === id 
-        ? { ...source, isEnabled: !source.isEnabled }
-        : source
-    ));
-  };
-
-  const handleRefresh = async (id) => {
-    const source = sources.find((s) => s.id === id);
-    if (!source) return;
-    setRefreshingSource(source.name);
-    setShowRefreshToast(true);
-
-    try {
-      setError(null);
-      if (!USE_MOCK_SOURCES) {
-        await requestWithRetry(() =>
-          requestJson(SOURCE_ENDPOINTS.refresh(id), { method: "POST" })
-        );
-      }
-    } catch (err) {
-      console.error(err);
-      setError(getErrorMessage(err, "Failed to refresh source"));
-    }
-
+  const handleToggle = useCallback((id) => {
     setSources((prev) =>
-      prev.map((item) =>
-        item.id === id
-          ? {
-              ...item,
-              lastFetch: new Date()
-                .toLocaleString("en-US", {
-                  year: "numeric",
-                  month: "2-digit",
-                  day: "2-digit",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                  hour12: false,
-                })
-                .replace(",", ""),
-            }
-          : item
+      prev.map((source) =>
+        source.id === id ? { ...source, isEnabled: !source.isEnabled } : source
       )
     );
+  }, []);
 
-    setTimeout(() => {
-      setShowRefreshToast(false);
-    }, 3000);
-  };
+  const handleRefresh = useCallback(
+    async (id) => {
+      const source = sources.find((s) => s.id === id);
+      if (!source) return;
+      setRefreshingSource(source.name);
+      setShowRefreshToast(true);
 
-  const handleEdit = (id) => {
-    const source = sources.find(s => s.id === id);
-    setEditingSource({
-      ...source,
-      loginType: source.login
-    });
-    setIsEditModalOpen(true);
-  };
+      try {
+        setError(null);
+        if (!USE_MOCK_SOURCES) {
+          await requestWithRetry(() =>
+            requestJson(SOURCE_ENDPOINTS.refresh(id), { method: "POST" })
+          );
+        }
+      } catch (err) {
+        console.error(err);
+        setError(getErrorMessage(err, "Failed to refresh source"));
+      }
 
-  const handleEditSubmit = (e) => {
-    e.preventDefault();
-    
-    setSources(prev => prev.map(source => 
-      source.id === editingSource.id 
-        ? {
-            ...source,
-            name: editingSource.name,
-            url: editingSource.url,
-            login: editingSource.loginType,
-            isPublic: editingSource.loginType === "Public"
-          }
-        : source
-    ));
-    
-    setIsEditModalOpen(false);
-    setEditingSource(null);
-  };
+      setSources((prev) =>
+        prev.map((item) =>
+          item.id === id
+            ? {
+                ...item,
+                lastFetch: new Date()
+                  .toLocaleString("en-US", {
+                    year: "numeric",
+                    month: "2-digit",
+                    day: "2-digit",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    hour12: false,
+                  })
+                  .replace(",", ""),
+              }
+            : item
+        )
+      );
 
-  const handleEditInputChange = (e) => {
+      setTimeout(() => {
+        setShowRefreshToast(false);
+      }, 3000);
+    },
+    [sources]
+  );
+
+  const handleEdit = useCallback(
+    (id) => {
+      const source = sources.find((s) => s.id === id);
+      setEditingSource({
+        ...source,
+        loginType: source.login,
+      });
+      setIsEditModalOpen(true);
+    },
+    [sources]
+  );
+
+  const handleEditSubmit = useCallback(
+    (e) => {
+      e.preventDefault();
+
+      setSources((prev) =>
+        prev.map((source) =>
+          source.id === editingSource.id
+            ? {
+                ...source,
+                name: editingSource.name,
+                url: editingSource.url,
+                login: editingSource.loginType,
+                isPublic: editingSource.loginType === "Public",
+              }
+            : source
+        )
+      );
+
+      setIsEditModalOpen(false);
+      setEditingSource(null);
+    },
+    [editingSource]
+  );
+
+  const handleEditInputChange = useCallback((e) => {
     const { name, value } = e.target;
-    setEditingSource(prev => ({
+    setEditingSource((prev) => ({
       ...prev,
-      [name]: value
+      [name]: value,
     }));
-  };
+  }, []);
 
-  const handleCloseEditModal = () => {
+  const handleCloseEditModal = useCallback(() => {
     setIsEditModalOpen(false);
     setEditingSource(null);
-  };
+  }, []);
 
-  const unreadCount = notifications.filter((n) => !n.isRead).length;
+  const unreadCount = useMemo(
+    () => notifications.filter((n) => !n.isRead).length,
+    [notifications]
+  );
 
-  const handleToggleNotifications = () => {
+  const handleToggleNotifications = useCallback(() => {
     setShowNotifications((prev) => !prev);
-  };
+  }, []);
 
-  const handleMarkAllRead = () => {
+  const handleMarkAllRead = useCallback(() => {
     setNotifications((list) => list.map((n) => ({ ...n, isRead: true })));
-  };
+  }, []);
 
-  const handleClearNotifications = () => {
+  const handleClearNotifications = useCallback(() => {
     setNotifications([]);
-  };
+  }, []);
 
-  const handleNotificationClick = (id) => {
+  const handleNotificationClick = useCallback((id) => {
     setNotifications((list) =>
       list.map((n) => (n.id === id ? { ...n, isRead: true } : n))
     );
-  };
+  }, []);
 
-  const handleRemoveNotification = (id) => {
+  const handleRemoveNotification = useCallback((id) => {
     setNotifications((list) => list.filter((n) => n.id !== id));
-  };
+  }, []);
 
-  const safeSources = Array.isArray(sources) ? sources : [];
-  const filteredSources = safeSources.filter(
-    (source) =>
-      source.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      source.url.toLowerCase().includes(searchQuery.toLowerCase())
+  const safeSources = useMemo(
+    () => (Array.isArray(sources) ? sources : []),
+    [sources]
+  );
+  const filteredSources = useMemo(
+    () =>
+      safeSources.filter(
+        (source) =>
+          source.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          source.url.toLowerCase().includes(searchQuery.toLowerCase())
+      ),
+    [safeSources, searchQuery]
   );
 
   return (
-    <div className="bg-[#F7FAFC] min-h-screen">
+    <div className="bg-[#F7FAFC] min-h-full">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="flex items-center justify-between">
+      <div className="bg-white border-b border-gray-200 px-4 py-4 sm:px-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold text-gray-900">Source Management</h1>
-            <p className="text-sm text-gray-500 mt-0.5">Configure and monitor tender data sources</p>
+            <h1 className="text-2xl font-semibold text-gray-900">
+              Source Management
+            </h1>
+            <p className="text-sm text-gray-500 mt-0.5">
+              Configure and monitor tender data sources
+            </p>
           </div>
           <div className="relative" ref={notificationMenuRef}>
             <button
@@ -447,9 +585,7 @@ export default function Sources() {
                       key={n.id}
                       onClick={() => handleNotificationClick(n.id)}
                       className={`flex items-start justify-between gap-2 px-4 py-2 text-xs border-b last:border-b-0 cursor-pointer ${
-                        n.isRead
-                          ? "text-gray-500"
-                          : "text-gray-900 font-medium"
+                        n.isRead ? "text-gray-500" : "text-gray-900 font-medium"
                       }`}
                     >
                       <span className="flex-1">{n.message}</span>
@@ -474,24 +610,26 @@ export default function Sources() {
       </div>
 
       {loading && (
-        <div className="mx-6 mt-4 text-sm text-gray-500 flex items-center gap-2">
+        <div className="mx-4 mt-4 text-sm text-gray-500 flex items-center gap-2 sm:mx-6">
           <span className="animate-spin h-4 w-4 border-2 border-gray-300 border-t-transparent rounded-full"></span>
           Loading sources...
         </div>
       )}
       {error && (
-        <div className="mx-6 mt-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+        <div className="mx-4 mt-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm sm:mx-6">
           {error}
         </div>
       )}
 
       {/* Content */}
-      <div className="p-6 max-w-[1400px] mx-auto">
+      <div className="p-4 max-w-[1400px] mx-auto sm:p-6">
         {/* Statistics Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
           <div className="bg-white rounded-lg border border-gray-200 p-5">
             <div className="text-sm text-gray-600 mb-1">Total Sources</div>
-            <div className="text-3xl font-semibold text-gray-900">{safeSources.length}</div>
+            <div className="text-3xl font-semibold text-gray-900">
+              {safeSources.length}
+            </div>
           </div>
           <div className="bg-white rounded-lg border border-gray-200 p-5">
             <div className="text-sm text-gray-600 mb-1">Active</div>
@@ -514,9 +652,12 @@ export default function Sources() {
         </div>
 
         {/* Search and Add Button */}
-        <div className="flex justify-between gap-3 mb-6">
-          <div className="relative" style={{ width: '400px' }}>
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+        <div className="flex flex-col gap-3 mb-6 md:flex-row md:items-center md:justify-between">
+          <div className="relative w-full md:w-[400px]">
+            <Search
+              className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"
+              size={18}
+            />
             <input
               type="text"
               placeholder="Search sources..."
@@ -525,9 +666,9 @@ export default function Sources() {
               className="w-full pl-10 pr-4 py-2.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
-          <button 
+          <button
             onClick={() => setIsModalOpen(true)}
-            className="bg-[#3c83f6] hover:bg-[#2563eb] text-white px-5 py-2.5 rounded-md flex items-center justify-center gap-2 transition font-medium text-sm whitespace-nowrap"
+            className="bg-[#3c83f6] hover:bg-[#2563eb] text-white px-5 py-2.5 rounded-md flex items-center justify-center gap-2 transition font-medium text-sm whitespace-nowrap w-full md:w-auto"
           >
             <Plus size={18} />
             Add Source
@@ -540,13 +681,27 @@ export default function Sources() {
             <table className="w-full">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <th className="text-left px-6 py-3.5 text-xs font-semibold text-gray-700 uppercase tracking-wider">Source</th>
-                  <th className="text-left px-6 py-3.5 text-xs font-semibold text-gray-700 uppercase tracking-wider">URL</th>
-                  <th className="text-left px-6 py-3.5 text-xs font-semibold text-gray-700 uppercase tracking-wider">Login</th>
-                  <th className="text-left px-6 py-3.5 text-xs font-semibold text-gray-700 uppercase tracking-wider">Status</th>
-                  <th className="text-left px-6 py-3.5 text-xs font-semibold text-gray-700 uppercase tracking-wider">Last Fetch</th>
-                  <th className="text-left px-6 py-3.5 text-xs font-semibold text-gray-700 uppercase tracking-wider">Tenders</th>
-                  <th className="text-left px-6 py-3.5 text-xs font-semibold text-gray-700 uppercase tracking-wider">Actions</th>
+                  <th className="text-left px-6 py-3.5 text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                    Source
+                  </th>
+                  <th className="text-left px-6 py-3.5 text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                    URL
+                  </th>
+                  <th className="text-left px-6 py-3.5 text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                    Login
+                  </th>
+                  <th className="text-left px-6 py-3.5 text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                    Status
+                  </th>
+                  <th className="text-left px-6 py-3.5 text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                    Last Fetch
+                  </th>
+                  <th className="text-left px-6 py-3.5 text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                    Tenders
+                  </th>
+                  <th className="text-left px-6 py-3.5 text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 bg-white">
@@ -561,66 +716,13 @@ export default function Sources() {
                   </tr>
                 ) : (
                   filteredSources.map((source) => (
-                    <tr key={source.id} className="hover:bg-gray-50 transition">
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900">{source.name}</td>
-                    <td className="px-6 py-4">
-                      <a href={source.url} target="_blank" rel="noopener noreferrer" className="text-sm text-[#3c83f6] hover:text-[#2563eb] flex items-center gap-1.5">
-                        {source.url}
-                        <ExternalLink size={13} />
-                      </a>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2 text-sm">
-                        {source.isPublic ? (
-                          <>
-                            <Globe size={16} className="text-gray-500" />
-                            <span className="text-gray-700">Public</span>
-                          </>
-                        ) : (
-                          <>
-                            <Lock size={16} className="text-yellow-600" />
-                            <span className="text-yellow-600 font-medium">Required</span>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-medium ${getStatusColor(source.status)}`}>
-                        {source.status}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-700">{source.lastFetch}</td>
-                    <td className="px-6 py-4 text-sm font-semibold text-gray-900">{source.tenders}</td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        {source.status !== "Disabled" && (
-                          <label className="relative inline-flex items-center cursor-pointer">
-                            <input 
-                              type="checkbox" 
-                              checked={source.isEnabled} 
-                              onChange={() => handleToggle(source.id)}
-                              className="sr-only peer"
-                            />
-                            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#3c83f6]"></div>
-                          </label>
-                        )}
-                        <button 
-                          onClick={() => handleRefresh(source.id)}
-                          className="text-gray-500 hover:text-[#3c83f6] transition"
-                          title="Refresh"
-                        >
-                          <RefreshCw size={18} />
-                        </button>
-                        <button 
-                          onClick={() => handleEdit(source.id)}
-                          className="text-gray-500 hover:text-[#3c83f6] transition"
-                          title="Edit"
-                        >
-                          <Edit size={18} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
+                    <SourceRow
+                      key={source.id}
+                      source={source}
+                      onToggle={handleToggle}
+                      onRefresh={handleRefresh}
+                      onEdit={handleEdit}
+                    />
                   ))
                 )}
               </tbody>
@@ -635,10 +737,14 @@ export default function Sources() {
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg">
             <div className="flex items-center justify-between p-6 border-b border-gray-200">
               <div>
-                <h2 className="text-xl font-semibold text-gray-900">Add New Source</h2>
-                <p className="text-sm text-gray-500 mt-1">Add a new data source to monitor for tenders.</p>
+                <h2 className="text-xl font-semibold text-gray-900">
+                  Add New Source
+                </h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Add a new data source to monitor for tenders.
+                </p>
               </div>
-              <button 
+              <button
                 onClick={handleCloseModal}
                 className="text-gray-400 hover:text-gray-600 transition"
               >
@@ -664,6 +770,20 @@ export default function Sources() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-900 mb-2">
+                    Excel Path
+                  </label>
+                  <input
+                    type="text"
+                    name="excelPath"
+                    value={formData.excelPath}
+                    onChange={handleInputChange}
+                    placeholder="C:\\path\\to\\file.xlsx"
+                    className="w-full px-4 py-2.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-900 mb-2">
                     URL
                   </label>
                   <input
@@ -682,16 +802,20 @@ export default function Sources() {
                       <label className="block text-sm font-medium text-gray-900">
                         Requires Login
                       </label>
-                      <p className="text-xs text-gray-500 mt-1">Enable if this source requires authentication</p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Enable if this source requires authentication
+                      </p>
                     </div>
                     <label className="relative inline-flex items-center cursor-pointer">
-                      <input 
-                        type="checkbox" 
+                      <input
+                        type="checkbox"
                         checked={formData.loginType === "Required"}
-                        onChange={(e) => setFormData(prev => ({
-                          ...prev,
-                          loginType: e.target.checked ? "Required" : "Public"
-                        }))}
+                        onChange={(e) =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            loginType: e.target.checked ? "Required" : "Public",
+                          }))
+                        }
                         className="sr-only peer"
                       />
                       <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#3c83f6]"></div>
@@ -727,10 +851,14 @@ export default function Sources() {
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg">
             <div className="flex items-center justify-between p-6 border-b border-gray-200">
               <div>
-                <h2 className="text-xl font-semibold text-gray-900">Edit Source</h2>
-                <p className="text-sm text-gray-500 mt-1">Update the source configuration below.</p>
+                <h2 className="text-xl font-semibold text-gray-900">
+                  Edit Source
+                </h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Update the source configuration below.
+                </p>
               </div>
-              <button 
+              <button
                 onClick={handleCloseEditModal}
                 className="text-gray-400 hover:text-gray-600 transition"
               >
@@ -774,16 +902,20 @@ export default function Sources() {
                       <label className="block text-sm font-medium text-gray-900">
                         Requires Login
                       </label>
-                      <p className="text-xs text-gray-500 mt-1">Enable if this source requires authentication</p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Enable if this source requires authentication
+                      </p>
                     </div>
                     <label className="relative inline-flex items-center cursor-pointer">
-                      <input 
-                        type="checkbox" 
+                      <input
+                        type="checkbox"
                         checked={editingSource.loginType === "Required"}
-                        onChange={(e) => setEditingSource(prev => ({
-                          ...prev,
-                          loginType: e.target.checked ? "Required" : "Public"
-                        }))}
+                        onChange={(e) =>
+                          setEditingSource((prev) => ({
+                            ...prev,
+                            loginType: e.target.checked ? "Required" : "Public",
+                          }))
+                        }
                         className="sr-only peer"
                       />
                       <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#3c83f6]"></div>
@@ -819,7 +951,9 @@ export default function Sources() {
           <RefreshCw size={20} className="animate-spin" />
           <div>
             <div className="font-medium">Fetching data</div>
-            <div className="text-sm text-gray-300">Refreshing data from {refreshingSource}...</div>
+            <div className="text-sm text-gray-300">
+              Refreshing data from {refreshingSource}...
+            </div>
           </div>
         </div>
       )}
@@ -954,20 +1088,20 @@ export default function Sources() {
 
 //   const handleSubmit = (e) => {
 //     e.preventDefault();
-    
+
 //     const newSource = {
 //       id: sources.length + 1,
 //       name: formData.name,
 //       url: formData.url,
 //       login: formData.loginType,
 //       status: "Active",
-//       lastFetch: new Date().toLocaleString('en-US', { 
-//         year: 'numeric', 
-//         month: '2-digit', 
+//       lastFetch: new Date().toLocaleString('en-US', {
+//         year: 'numeric',
+//         month: '2-digit',
 //         day: '2-digit',
 //         hour: '2-digit',
 //         minute: '2-digit',
-//         hour12: false 
+//         hour12: false
 //       }).replace(',', ''),
 //       tenders: 0,
 //       isPublic: formData.loginType === "Public",
@@ -993,8 +1127,8 @@ export default function Sources() {
 //   };
 
 //   const handleToggle = (id) => {
-//     setSources(prev => prev.map(source => 
-//       source.id === id 
+//     setSources(prev => prev.map(source =>
+//       source.id === id
 //         ? { ...source, isEnabled: !source.isEnabled }
 //         : source
 //     ));
@@ -1004,18 +1138,18 @@ export default function Sources() {
 //     const source = sources.find(s => s.id === id);
 //     setRefreshingSource(source.name);
 //     setShowRefreshToast(true);
-    
-//     setSources(prev => prev.map(source => 
-//       source.id === id 
-//         ? { 
-//             ...source, 
-//             lastFetch: new Date().toLocaleString('en-US', { 
-//               year: 'numeric', 
-//               month: '2-digit', 
+
+//     setSources(prev => prev.map(source =>
+//       source.id === id
+//         ? {
+//             ...source,
+//             lastFetch: new Date().toLocaleString('en-US', {
+//               year: 'numeric',
+//               month: '2-digit',
 //               day: '2-digit',
 //               hour: '2-digit',
 //               minute: '2-digit',
-//               hour12: false 
+//               hour12: false
 //             }).replace(',', '')
 //           }
 //         : source
@@ -1037,9 +1171,9 @@ export default function Sources() {
 
 //   const handleEditSubmit = (e) => {
 //     e.preventDefault();
-    
-//     setSources(prev => prev.map(source => 
-//       source.id === editingSource.id 
+
+//     setSources(prev => prev.map(source =>
+//       source.id === editingSource.id
 //         ? {
 //             ...source,
 //             name: editingSource.name,
@@ -1049,7 +1183,7 @@ export default function Sources() {
 //           }
 //         : source
 //     ));
-    
+
 //     setIsEditModalOpen(false);
 //     setEditingSource(null);
 //   };
@@ -1067,7 +1201,7 @@ export default function Sources() {
 //     setEditingSource(null);
 //   };
 
-//   const filteredSources = sources.filter(source => 
+//   const filteredSources = sources.filter(source =>
 //     source.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
 //     source.url.toLowerCase().includes(searchQuery.toLowerCase())
 //   );
@@ -1130,7 +1264,7 @@ export default function Sources() {
 //               className="w-full pl-10 pr-4 py-2.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
 //             />
 //           </div>
-//           <button 
+//           <button
 //             onClick={() => setIsModalOpen(true)}
 //             className="bg-[#3c83f6] hover:bg-[#2563eb] text-white px-5 py-2.5 rounded-md flex items-center justify-center gap-2 transition font-medium text-sm whitespace-nowrap"
 //           >
@@ -1190,23 +1324,23 @@ export default function Sources() {
 //                       <div className="flex items-center gap-3">
 //                         {source.status !== "Disabled" && (
 //                           <label className="relative inline-flex items-center cursor-pointer">
-//                             <input 
-//                               type="checkbox" 
-//                               checked={source.isEnabled} 
+//                             <input
+//                               type="checkbox"
+//                               checked={source.isEnabled}
 //                               onChange={() => handleToggle(source.id)}
 //                               className="sr-only peer"
 //                             />
 //                             <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#3c83f6]"></div>
 //                           </label>
 //                         )}
-//                         <button 
+//                         <button
 //                           onClick={() => handleRefresh(source.id)}
 //                           className="text-gray-500 hover:text-[#3c83f6] transition"
 //                           title="Refresh"
 //                         >
 //                           <RefreshCw size={18} />
 //                         </button>
-//                         <button 
+//                         <button
 //                           onClick={() => handleEdit(source.id)}
 //                           className="text-gray-500 hover:text-[#3c83f6] transition"
 //                           title="Edit"
@@ -1232,7 +1366,7 @@ export default function Sources() {
 //                 <h2 className="text-xl font-semibold text-gray-900">Add New Source</h2>
 //                 <p className="text-sm text-gray-500 mt-1">Add a new data source to monitor for tenders.</p>
 //               </div>
-//               <button 
+//               <button
 //                 onClick={handleCloseModal}
 //                 className="text-gray-400 hover:text-gray-600 transition"
 //               >
@@ -1279,8 +1413,8 @@ export default function Sources() {
 //                       <p className="text-xs text-gray-500 mt-1">Enable if this source requires authentication</p>
 //                     </div>
 //                     <label className="relative inline-flex items-center cursor-pointer">
-//                       <input 
-//                         type="checkbox" 
+//                       <input
+//                         type="checkbox"
 //                         checked={formData.loginType === "Required"}
 //                         onChange={(e) => setFormData(prev => ({
 //                           ...prev,
@@ -1324,7 +1458,7 @@ export default function Sources() {
 //                 <h2 className="text-xl font-semibold text-gray-900">Edit Source</h2>
 //                 <p className="text-sm text-gray-500 mt-1">Update the source configuration below.</p>
 //               </div>
-//               <button 
+//               <button
 //                 onClick={handleCloseEditModal}
 //                 className="text-gray-400 hover:text-gray-600 transition"
 //               >
@@ -1371,8 +1505,8 @@ export default function Sources() {
 //                       <p className="text-xs text-gray-500 mt-1">Enable if this source requires authentication</p>
 //                     </div>
 //                     <label className="relative inline-flex items-center cursor-pointer">
-//                       <input 
-//                         type="checkbox" 
+//                       <input
+//                         type="checkbox"
 //                         checked={editingSource.loginType === "Required"}
 //                         onChange={(e) => setEditingSource(prev => ({
 //                           ...prev,

@@ -1,4 +1,11 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+  memo,
+} from "react";
 import { Bell, BellOff, Plus, Pencil, Trash2, X } from "lucide-react";
 import { EmptyState } from "../components/States";
 import { getErrorMessage, requestJson, requestWithRetry } from "../utils/api";
@@ -13,14 +20,62 @@ const NOTIFICATION_ENDPOINTS = {
 };
 
 const keywordsData = [
-  { keyword: "IT Infrastructure", category: "Information Technology", priority: "High", alerts: true, created: "11/1/2025" },
-  { keyword: "Cybersecurity", category: "Information Technology", priority: "High", alerts: true, created: "11/1/2025" },
-  { keyword: "Construction", category: "Construction", priority: "Medium", alerts: true, created: "11/5/2025" },
-  { keyword: "Healthcare", category: "Healthcare", priority: "High", alerts: true, created: "11/10/2025" },
-  { keyword: "Environmental", category: "Environmental", priority: "Low", alerts: false, created: "11/15/2025" },
-  { keyword: "Software Development", category: "Information Technology", priority: "High", alerts: true, created: "11/20/2025" },
-  { keyword: "Facility Management", category: "Services", priority: "Medium", alerts: true, created: "12/1/2025" },
-  { keyword: "Medical Equipment", category: "Healthcare", priority: "Medium", alerts: true, created: "12/5/2025" }
+  {
+    keyword: "IT Infrastructure",
+    category: "Information Technology",
+    priority: "High",
+    alerts: true,
+    created: "11/1/2025",
+  },
+  {
+    keyword: "Cybersecurity",
+    category: "Information Technology",
+    priority: "High",
+    alerts: true,
+    created: "11/1/2025",
+  },
+  {
+    keyword: "Construction",
+    category: "Construction",
+    priority: "Medium",
+    alerts: true,
+    created: "11/5/2025",
+  },
+  {
+    keyword: "Healthcare",
+    category: "Healthcare",
+    priority: "High",
+    alerts: true,
+    created: "11/10/2025",
+  },
+  {
+    keyword: "Environmental",
+    category: "Environmental",
+    priority: "Low",
+    alerts: false,
+    created: "11/15/2025",
+  },
+  {
+    keyword: "Software Development",
+    category: "Information Technology",
+    priority: "High",
+    alerts: true,
+    created: "11/20/2025",
+  },
+  {
+    keyword: "Facility Management",
+    category: "Services",
+    priority: "Medium",
+    alerts: true,
+    created: "12/1/2025",
+  },
+  {
+    keyword: "Medical Equipment",
+    category: "Healthcare",
+    priority: "Medium",
+    alerts: true,
+    created: "12/5/2025",
+  },
 ];
 
 const INITIAL_NOTIFICATIONS = [
@@ -35,8 +90,70 @@ const initialCategories = [
   "Healthcare",
   "Environmental",
   "Services",
-  "Other"
+  "Other",
 ];
+
+const getPriorityClasses = (priority) => {
+  if (priority === "High") return "bg-red-100 text-red-600";
+  if (priority === "Medium") return "bg-yellow-100 text-yellow-700";
+  return "bg-green-100 text-green-600";
+};
+
+const KeywordRow = memo(function KeywordRow({
+  item,
+  index,
+  onToggleAlert,
+  onEdit,
+  onDelete,
+}) {
+  return (
+    <div className="grid grid-cols-6 px-6 py-4 items-center border-t border-gray-100 text-sm">
+      <div className="font-medium text-gray-900">{item.keyword}</div>
+      <div>
+        <span className="px-3 py-1 rounded-full bg-gray-100 text-gray-700 text-xs">
+          {item.category}
+        </span>
+      </div>
+      <div>
+        <span
+          className={`px-3 py-1 rounded-full text-xs ${getPriorityClasses(
+            item.priority
+          )}`}
+        >
+          {item.priority}
+        </span>
+      </div>
+      <div>
+        {item.alerts ? (
+          <div
+            onClick={() => onToggleAlert(index)}
+            className="w-9 h-9 rounded-lg bg-green-100 flex items-center justify-center cursor-pointer hover:bg-green-200 transition-colors"
+          >
+            <Bell className="w-4 h-4 text-green-600" />
+          </div>
+        ) : (
+          <div
+            onClick={() => onToggleAlert(index)}
+            className="w-9 h-9 rounded-lg bg-gray-100 flex items-center justify-center cursor-pointer hover:bg-gray-200 transition-colors"
+          >
+            <BellOff className="w-4 h-4 text-gray-400" />
+          </div>
+        )}
+      </div>
+      <div className="text-gray-600">{item.created}</div>
+      <div className="flex justify-end gap-4">
+        <Pencil
+          className="w-4 h-4 text-gray-500 cursor-pointer hover:text-blue-500"
+          onClick={() => onEdit(item, index)}
+        />
+        <Trash2
+          className="w-4 h-4 text-red-500 cursor-pointer hover:text-red-600"
+          onClick={() => onDelete(index)}
+        />
+      </div>
+    </div>
+  );
+});
 
 export default function Keywords() {
   const [keywords, setKeywords] = useState(keywordsData);
@@ -44,9 +161,18 @@ export default function Keywords() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [alertsEnabled, setAlertsEnabled] = useState(true);
   const [editingKeyword, setEditingKeyword] = useState(null);
-  const [editForm, setEditForm] = useState({ keyword: "", category: "", priority: "", alerts: true });
+  const [editForm, setEditForm] = useState({
+    keyword: "",
+    category: "",
+    priority: "",
+    alerts: true,
+  });
   const [searchTerm, setSearchTerm] = useState("");
-  const [newKeyword, setNewKeyword] = useState({ keyword: "", category: "Information Technology", priority: "High" });
+  const [newKeyword, setNewKeyword] = useState({
+    keyword: "",
+    category: "Information Technology",
+    priority: "High",
+  });
   const [categories, setCategories] = useState(initialCategories);
   const [showCategoryInput, setShowCategoryInput] = useState(false);
   const [newCategoryInput, setNewCategoryInput] = useState("");
@@ -58,7 +184,7 @@ export default function Keywords() {
   const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS);
   const notificationMenuRef = useRef(null);
 
-  const fetchKeywords = async () => {
+  const fetchKeywords = useCallback(async () => {
     if (USE_MOCK_KEYWORDS) return; // TODO BACKEND: mock delete karke API call enable hoga
     try {
       setLoading(true);
@@ -87,13 +213,13 @@ export default function Keywords() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchKeywords();
-  }, []);
+  }, [fetchKeywords]);
 
-  const fetchNotifications = async () => {
+  const fetchNotifications = useCallback(async () => {
     if (USE_MOCK_NOTIFICATIONS) return; // TODO BACKEND: mock hata ke API se data aayega
     try {
       setError(null);
@@ -108,11 +234,11 @@ export default function Keywords() {
       console.error(err);
       setError(getErrorMessage(err, "Failed to load notifications"));
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchNotifications();
-  }, []);
+  }, [fetchNotifications]);
 
   useEffect(() => {
     if (!showNotifications) return;
@@ -141,135 +267,179 @@ export default function Keywords() {
     };
   }, [showNotifications]);
 
-  const handleEdit = (item, index) => {
+  const handleEdit = useCallback((item, index) => {
     setEditingKeyword(index);
-    setEditForm({ keyword: item.keyword, category: item.category, priority: item.priority, alerts: item.alerts });
+    setEditForm({
+      keyword: item.keyword,
+      category: item.category,
+      priority: item.priority,
+      alerts: item.alerts,
+    });
     setShowEditCategoryInput(false);
     setEditCategoryInput("");
     setShowEditModal(true);
-  };
+  }, []);
 
-  const handleAdd = () => {
+  const handleAdd = useCallback(() => {
     if (newKeyword.keyword.trim() === "") return;
     if (newKeyword.category.trim() === "") return;
-    
+
     const today = new Date();
-    const formattedDate = `${today.getMonth() + 1}/${today.getDate()}/${today.getFullYear()}`;
-    
+    const formattedDate = `${
+      today.getMonth() + 1
+    }/${today.getDate()}/${today.getFullYear()}`;
+
     const keywordToAdd = {
       keyword: newKeyword.keyword,
       category: newKeyword.category,
       priority: newKeyword.priority,
       alerts: alertsEnabled,
-      created: formattedDate
+      created: formattedDate,
     };
-    
+
     setKeywords([...keywords, keywordToAdd]);
-    setNewKeyword({ keyword: "", category: "Information Technology", priority: "High" });
+    setNewKeyword({
+      keyword: "",
+      category: "Information Technology",
+      priority: "High",
+    });
     setAlertsEnabled(true);
     setShowCategoryInput(false);
     setNewCategoryInput("");
     setShowModal(false);
-  };
+  }, [alertsEnabled, keywords, newKeyword]);
 
-  const handleUpdate = () => {
+  const handleUpdate = useCallback(() => {
     if (editForm.category.trim() === "") return;
     const updatedKeywords = [...keywords];
-    updatedKeywords[editingKeyword] = { ...updatedKeywords[editingKeyword], ...editForm };
+    updatedKeywords[editingKeyword] = {
+      ...updatedKeywords[editingKeyword],
+      ...editForm,
+    };
     setKeywords(updatedKeywords);
     setShowEditModal(false);
     setEditingKeyword(null);
-  };
+  }, [editForm, editingKeyword, keywords]);
 
-  const handleDelete = (index) => {
-    setKeywords(keywords.filter((_, i) => i !== index));
-  };
+  const handleDelete = useCallback(
+    (index) => {
+      setKeywords(keywords.filter((_, i) => i !== index));
+    },
+    [keywords]
+  );
 
-  const toggleAlert = (index) => {
-    const updatedKeywords = [...keywords];
-    updatedKeywords[index].alerts = !updatedKeywords[index].alerts;
-    setKeywords(updatedKeywords);
-  };
+  const toggleAlert = useCallback(
+    (index) => {
+      const updatedKeywords = [...keywords];
+      updatedKeywords[index].alerts = !updatedKeywords[index].alerts;
+      setKeywords(updatedKeywords);
+    },
+    [keywords]
+  );
 
-  const unreadCount = notifications.filter((n) => !n.isRead).length;
+  const unreadCount = useMemo(
+    () => notifications.filter((n) => !n.isRead).length,
+    [notifications]
+  );
 
-  const handleToggleNotifications = () => {
+  const handleToggleNotifications = useCallback(() => {
     setShowNotifications((prev) => !prev);
-  };
+  }, []);
 
-  const handleMarkAllRead = () => {
+  const handleMarkAllRead = useCallback(() => {
     setNotifications((list) => list.map((n) => ({ ...n, isRead: true })));
-  };
+  }, []);
 
-  const handleClearNotifications = () => {
+  const handleClearNotifications = useCallback(() => {
     setNotifications([]);
-  };
+  }, []);
 
-  const handleNotificationClick = (id) => {
+  const handleNotificationClick = useCallback((id) => {
     setNotifications((list) =>
       list.map((n) => (n.id === id ? { ...n, isRead: true } : n))
     );
-  };
+  }, []);
 
-  const handleRemoveNotification = (id) => {
+  const handleRemoveNotification = useCallback((id) => {
     setNotifications((list) => list.filter((n) => n.id !== id));
-  };
+  }, []);
 
-  const addCategory = (value) => {
-    const trimmed = value.trim();
-    if (!trimmed) return;
-    if (!categories.includes(trimmed)) {
-      setCategories([...categories, trimmed]);
-    }
-    return trimmed;
-  };
+  const addCategory = useCallback(
+    (value) => {
+      const trimmed = value.trim();
+      if (!trimmed) return;
+      if (!categories.includes(trimmed)) {
+        setCategories([...categories, trimmed]);
+      }
+      return trimmed;
+    },
+    [categories]
+  );
 
-  const removeCategory = (value) => {
-    const trimmed = value.trim();
-    if (!trimmed) return;
-    if (!categories.includes(trimmed)) return;
-    if (categories.length <= 1) return;
+  const removeCategory = useCallback(
+    (value) => {
+      const trimmed = value.trim();
+      if (!trimmed) return;
+      if (!categories.includes(trimmed)) return;
+      if (categories.length <= 1) return;
 
-    const remaining = categories.filter((category) => category !== trimmed);
-    const fallback = remaining.includes("Other") ? "Other" : remaining[0];
+      const remaining = categories.filter((category) => category !== trimmed);
+      const fallback = remaining.includes("Other") ? "Other" : remaining[0];
 
-    setCategories(remaining);
-    setKeywords(
-      keywords.map((item) =>
-        item.category === trimmed ? { ...item, category: fallback } : item
-      )
-    );
+      setCategories(remaining);
+      setKeywords(
+        keywords.map((item) =>
+          item.category === trimmed ? { ...item, category: fallback } : item
+        )
+      );
 
-    if (newKeyword.category === trimmed) {
-      setNewKeyword({ ...newKeyword, category: fallback });
-    }
+      if (newKeyword.category === trimmed) {
+        setNewKeyword({ ...newKeyword, category: fallback });
+      }
 
-    if (editForm.category === trimmed) {
-      setEditForm({ ...editForm, category: fallback });
-    }
+      if (editForm.category === trimmed) {
+        setEditForm({ ...editForm, category: fallback });
+      }
 
-    setShowCategoryInput(false);
-    setNewCategoryInput("");
-    setShowEditCategoryInput(false);
-    setEditCategoryInput("");
-  };
+      setShowCategoryInput(false);
+      setNewCategoryInput("");
+      setShowEditCategoryInput(false);
+      setEditCategoryInput("");
+    },
+    [categories, editForm, keywords, newKeyword]
+  );
 
   // Filter keywords based on search term
-  const safeKeywords = Array.isArray(keywords) ? keywords : [];
-  const safeCategories = Array.isArray(categories) ? categories : [];
-  const filteredKeywords = safeKeywords.filter((item) =>
-    item.keyword.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    item.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    item.priority.toLowerCase().includes(searchTerm.toLowerCase())
+  const safeKeywords = useMemo(
+    () => (Array.isArray(keywords) ? keywords : []),
+    [keywords]
+  );
+  const safeCategories = useMemo(
+    () => (Array.isArray(categories) ? categories : []),
+    [categories]
+  );
+  const filteredKeywords = useMemo(
+    () =>
+      safeKeywords.filter(
+        (item) =>
+          item.keyword.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          item.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          item.priority.toLowerCase().includes(searchTerm.toLowerCase())
+      ),
+    [safeKeywords, searchTerm]
   );
 
   return (
-    <div className="flex flex-col h-screen bg-gray-50">
+    <div className="flex flex-col min-h-full bg-gray-50">
       <div className="sticky top-0 z-40 bg-gray-50 border-b border-gray-200">
-        <div className="px-8 py-5 flex items-center justify-between">
+        <div className="px-4 py-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:px-8">
           <div>
-            <h1 className="text-xl font-semibold text-gray-900">Keyword Management</h1>
-            <p className="text-sm text-gray-500">Configure keywords for intelligent tender matching</p>
+            <h1 className="text-xl font-semibold text-gray-900">
+              Keyword Management
+            </h1>
+            <p className="text-sm text-gray-500">
+              Configure keywords for intelligent tender matching
+            </p>
           </div>
           <div className="relative" ref={notificationMenuRef}>
             <button
@@ -326,9 +496,7 @@ export default function Keywords() {
                       key={n.id}
                       onClick={() => handleNotificationClick(n.id)}
                       className={`flex items-start justify-between gap-2 px-4 py-2 text-xs border-b last:border-b-0 cursor-pointer ${
-                        n.isRead
-                          ? "text-gray-500"
-                          : "text-gray-900 font-medium"
+                        n.isRead ? "text-gray-500" : "text-gray-900 font-medium"
                       }`}
                     >
                       <span className="flex-1">{n.message}</span>
@@ -350,14 +518,17 @@ export default function Keywords() {
             )}
           </div>
         </div>
-        <div className="px-8 pb-4 flex items-center justify-between">
-          <input 
-            placeholder="Search keywords..." 
+        <div className="px-4 pb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:px-8">
+          <input
+            placeholder="Search keywords..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-72 px-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" 
+            className="w-full px-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:w-72"
           />
-          <button onClick={() => setShowModal(true)} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium">
+          <button
+            onClick={() => setShowModal(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium"
+          >
             <Plus size={16} />
             Add Keyword
           </button>
@@ -365,83 +536,69 @@ export default function Keywords() {
       </div>
 
       {loading && (
-        <div className="mx-8 mt-4 text-sm text-gray-500 flex items-center gap-2">
+        <div className="mx-4 mt-4 text-sm text-gray-500 flex items-center gap-2 sm:mx-8">
           <span className="animate-spin h-4 w-4 border-2 border-gray-300 border-t-transparent rounded-full"></span>
           Loading keywords...
         </div>
       )}
       {error && (
-        <div className="mx-8 mt-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+        <div className="mx-4 mt-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm sm:mx-8">
           {error}
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto px-8 py-6">
+      <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-8">
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <div className="grid grid-cols-6 px-6 py-3 text-sm text-gray-500 font-medium bg-gray-50">
-            <div>Keyword</div>
-            <div>Category</div>
-            <div>Priority</div>
-            <div>Alerts</div>
-            <div>Created</div>
-            <div className="text-right">Actions</div>
-          </div>
+          <div className="overflow-x-auto">
+            <div className="min-w-[720px]">
+              <div className="grid grid-cols-6 px-6 py-3 text-sm text-gray-500 font-medium bg-gray-50">
+                <div>Keyword</div>
+                <div>Category</div>
+                <div>Priority</div>
+                <div>Alerts</div>
+                <div>Created</div>
+                <div className="text-right">Actions</div>
+              </div>
 
-          {filteredKeywords.length > 0 ? (
-            filteredKeywords.map((item, i) => {
-              const originalIndex = safeKeywords.indexOf(item);
-              return (
-                <div key={originalIndex} className="grid grid-cols-6 px-6 py-4 items-center border-t border-gray-100 text-sm">
-                  <div className="font-medium text-gray-900">{item.keyword}</div>
-                  <div>
-                    <span className="px-3 py-1 rounded-full bg-gray-100 text-gray-700 text-xs">{item.category}</span>
-                  </div>
-                  <div>
-                    <span className={`px-3 py-1 rounded-full text-xs ${item.priority === "High" ? "bg-red-100 text-red-600" : item.priority === "Medium" ? "bg-yellow-100 text-yellow-700" : "bg-green-100 text-green-600"}`}>{item.priority}</span>
-                  </div>
-                  <div>
-                    {item.alerts ? (
-                      <div 
-                        onClick={() => toggleAlert(originalIndex)}
-                        className="w-9 h-9 rounded-lg bg-green-100 flex items-center justify-center cursor-pointer hover:bg-green-200 transition-colors"
-                      >
-                        <Bell className="w-4 h-4 text-green-600" />
-                      </div>
-                    ) : (
-                      <div 
-                        onClick={() => toggleAlert(originalIndex)}
-                        className="w-9 h-9 rounded-lg bg-gray-100 flex items-center justify-center cursor-pointer hover:bg-gray-200 transition-colors"
-                      >
-                        <BellOff className="w-4 h-4 text-gray-400" />
-                      </div>
-                    )}
-                  </div>
-                  <div className="text-gray-600">{item.created}</div>
-                  <div className="flex justify-end gap-4">
-                    <Pencil className="w-4 h-4 text-gray-500 cursor-pointer hover:text-blue-500" onClick={() => handleEdit(item, originalIndex)} />
-                    <Trash2 className="w-4 h-4 text-red-500 cursor-pointer hover:text-red-600" onClick={() => handleDelete(originalIndex)} />
-                  </div>
+              {filteredKeywords.length > 0 ? (
+                filteredKeywords.map((item) => {
+                  const originalIndex = safeKeywords.indexOf(item);
+                  return (
+                    <KeywordRow
+                      key={originalIndex}
+                      item={item}
+                      index={originalIndex}
+                      onToggleAlert={toggleAlert}
+                      onEdit={handleEdit}
+                      onDelete={handleDelete}
+                    />
+                  );
+                })
+              ) : (
+                <div className="px-6 py-8">
+                  <EmptyState
+                    title="No keywords found"
+                    message="Add a keyword or change your search."
+                  />
                 </div>
-              );
-            })
-          ) : (
-            <div className="px-6 py-8">
-              <EmptyState
-                title="No keywords found"
-                message="Add a keyword or change your search."
-              />
+              )}
             </div>
-          )}
+          </div>
         </div>
       </div>
 
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm" style={{backgroundColor: 'rgba(0, 0, 0, 0.2)'}}>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm"
+          style={{ backgroundColor: "rgba(0, 0, 0, 0.2)" }}
+        >
           <div className="bg-white w-full max-w-lg rounded-xl p-6 shadow-xl">
             <div className="flex justify-between items-start">
               <div>
                 <h2 className="text-lg font-semibold">Add New Keyword</h2>
-                <p className="text-sm text-gray-500">Add a new keyword to monitor for matching tenders.</p>
+                <p className="text-sm text-gray-500">
+                  Add a new keyword to monitor for matching tenders.
+                </p>
               </div>
               <X
                 className="cursor-pointer text-gray-400"
@@ -456,11 +613,13 @@ export default function Keywords() {
             <div className="mt-5 space-y-4">
               <div>
                 <label className="text-sm font-medium">Keyword</label>
-                <input 
+                <input
                   value={newKeyword.keyword}
-                  onChange={(e) => setNewKeyword({...newKeyword, keyword: e.target.value})}
-                  placeholder="Enter keyword..." 
-                  className="w-full mt-1 px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" 
+                  onChange={(e) =>
+                    setNewKeyword({ ...newKeyword, keyword: e.target.value })
+                  }
+                  placeholder="Enter keyword..."
+                  className="w-full mt-1 px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
               <div>
@@ -481,7 +640,7 @@ export default function Keywords() {
                     Remove
                   </button>
                 </div>
-                <select 
+                <select
                   value={newKeyword.category}
                   onChange={(e) => {
                     const selected = e.target.value;
@@ -497,7 +656,9 @@ export default function Keywords() {
                   className="w-full mt-1 px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
                   {safeCategories.map((category) => (
-                    <option key={category} value={category}>{category}</option>
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
                   ))}
                   <option value="__add_new__">+ Add new category</option>
                 </select>
@@ -528,9 +689,11 @@ export default function Keywords() {
               </div>
               <div>
                 <label className="text-sm font-medium">Priority</label>
-                <select 
+                <select
                   value={newKeyword.priority}
-                  onChange={(e) => setNewKeyword({...newKeyword, priority: e.target.value})}
+                  onChange={(e) =>
+                    setNewKeyword({ ...newKeyword, priority: e.target.value })
+                  }
                   className="w-full mt-1 px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
                   <option>High</option>
@@ -539,9 +702,21 @@ export default function Keywords() {
                 </select>
               </div>
               <div className="flex items-center justify-between pt-2">
-                <span className="text-base font-medium text-gray-900">Enable Alerts</span>
-                <button type="button" onClick={() => setAlertsEnabled(!alertsEnabled)} className={`w-11 h-6 rounded-full relative transition ${alertsEnabled ? "bg-blue-500" : "bg-gray-300"}`}>
-                  <div className={`w-5 h-5 bg-white rounded-full absolute top-0.5 transition ${alertsEnabled ? "right-0.5" : "left-0.5"}`} />
+                <span className="text-base font-medium text-gray-900">
+                  Enable Alerts
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setAlertsEnabled(!alertsEnabled)}
+                  className={`w-11 h-6 rounded-full relative transition ${
+                    alertsEnabled ? "bg-blue-500" : "bg-gray-300"
+                  }`}
+                >
+                  <div
+                    className={`w-5 h-5 bg-white rounded-full absolute top-0.5 transition ${
+                      alertsEnabled ? "right-0.5" : "left-0.5"
+                    }`}
+                  />
                 </button>
               </div>
             </div>
@@ -550,7 +725,11 @@ export default function Keywords() {
                 onClick={() => {
                   setShowModal(false);
                   setAlertsEnabled(true);
-                  setNewKeyword({ keyword: "", category: "Information Technology", priority: "High" });
+                  setNewKeyword({
+                    keyword: "",
+                    category: "Information Technology",
+                    priority: "High",
+                  });
                   setShowCategoryInput(false);
                   setNewCategoryInput("");
                 }}
@@ -558,19 +737,29 @@ export default function Keywords() {
               >
                 Cancel
               </button>
-              <button onClick={handleAdd} className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm">Add Keyword</button>
+              <button
+                onClick={handleAdd}
+                className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm"
+              >
+                Add Keyword
+              </button>
             </div>
           </div>
         </div>
       )}
 
       {showEditModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm" style={{backgroundColor: 'rgba(0, 0, 0, 0.2)'}}>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm"
+          style={{ backgroundColor: "rgba(0, 0, 0, 0.2)" }}
+        >
           <div className="bg-white w-full max-w-lg rounded-xl p-6 shadow-xl">
             <div className="flex justify-between items-start">
               <div>
                 <h2 className="text-lg font-semibold">Edit Keyword</h2>
-                <p className="text-sm text-gray-500">Update the keyword configuration below.</p>
+                <p className="text-sm text-gray-500">
+                  Update the keyword configuration below.
+                </p>
               </div>
               <X
                 className="cursor-pointer text-gray-400"
@@ -585,7 +774,14 @@ export default function Keywords() {
             <div className="mt-5 space-y-4">
               <div>
                 <label className="text-sm font-medium">Keyword</label>
-                <input value={editForm.keyword} onChange={(e) => setEditForm({...editForm, keyword: e.target.value})} placeholder="Enter keyword..." className="w-full mt-1 px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+                <input
+                  value={editForm.keyword}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, keyword: e.target.value })
+                  }
+                  placeholder="Enter keyword..."
+                  className="w-full mt-1 px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
               </div>
               <div>
                 <div className="flex items-center justify-between">
@@ -621,7 +817,9 @@ export default function Keywords() {
                   className="w-full mt-1 px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
                   {safeCategories.map((category) => (
-                    <option key={category} value={category}>{category}</option>
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
                   ))}
                   <option value="__add_new__">+ Add new category</option>
                 </select>
@@ -652,16 +850,36 @@ export default function Keywords() {
               </div>
               <div>
                 <label className="text-sm font-medium">Priority</label>
-                <select value={editForm.priority} onChange={(e) => setEditForm({...editForm, priority: e.target.value})} className="w-full mt-1 px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                <select
+                  value={editForm.priority}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, priority: e.target.value })
+                  }
+                  className="w-full mt-1 px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
                   <option>High</option>
                   <option>Medium</option>
                   <option>Low</option>
                 </select>
               </div>
               <div className="flex items-center justify-between pt-2">
-                <span className="text-base font-medium text-gray-900">Enable Alerts</span>
-                <button type="button" onClick={() => setEditForm({...editForm, alerts: !editForm.alerts})} className={`w-11 h-6 rounded-full relative transition ${editForm.alerts ? "bg-blue-500" : "bg-gray-300"}`}>
-                  <div className={`w-5 h-5 bg-white rounded-full absolute top-0.5 transition ${editForm.alerts ? "right-0.5" : "left-0.5"}`} />
+                <span className="text-base font-medium text-gray-900">
+                  Enable Alerts
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setEditForm({ ...editForm, alerts: !editForm.alerts })
+                  }
+                  className={`w-11 h-6 rounded-full relative transition ${
+                    editForm.alerts ? "bg-blue-500" : "bg-gray-300"
+                  }`}
+                >
+                  <div
+                    className={`w-5 h-5 bg-white rounded-full absolute top-0.5 transition ${
+                      editForm.alerts ? "right-0.5" : "left-0.5"
+                    }`}
+                  />
                 </button>
               </div>
             </div>
@@ -677,7 +895,12 @@ export default function Keywords() {
               >
                 Cancel
               </button>
-              <button onClick={handleUpdate} className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm">Update Keyword</button>
+              <button
+                onClick={handleUpdate}
+                className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm"
+              >
+                Update Keyword
+              </button>
             </div>
           </div>
         </div>

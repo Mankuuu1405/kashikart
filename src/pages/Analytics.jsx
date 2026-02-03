@@ -1,4 +1,11 @@
-import React,{ useEffect, useRef, useState } from "react";
+import React, {
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+  useMemo,
+  memo,
+} from "react";
 import { getErrorMessage, requestJson, requestWithRetry } from "../utils/api";
 
 import {
@@ -79,6 +86,52 @@ const ANALYTICS_ENDPOINTS = {
   refresh: "/api/analytics/refresh", // TODO BACKEND: yahi endpoint use hoga
 };
 
+const NotificationItem = memo(function NotificationItem({
+  notification,
+  onClick,
+  onRemove,
+}) {
+  return (
+    <div
+      onClick={() => onClick(notification.id)}
+      className={`px-4 py-3 border-b last:border-b-0 flex gap-3 ${
+        !notification.read ? "bg-blue-50" : ""
+      }`}
+    >
+      <div className="mt-1">
+        {notification.type === "success" && (
+          <CheckCircle className="text-green-600" size={18} />
+        )}
+        {notification.type === "warning" && (
+          <AlertTriangle className="text-yellow-500" size={18} />
+        )}
+        {!["success", "warning"].includes(notification.type) && (
+          <AlertTriangle className="text-gray-400" size={18} />
+        )}
+      </div>
+
+      <div className="flex-1">
+        <p className="text-sm text-gray-800">
+          {notification.message || "No message available"}
+        </p>
+        <p className="text-xs text-gray-400 mt-0.5">
+          {notification.time || "Just now"}
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          onRemove(notification.id);
+        }}
+        className="text-gray-400 hover:text-red-500 transition"
+      >
+        <X size={16} />
+      </button>
+    </div>
+  );
+});
+
 export default function AnalyticsDashboard() {
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState(initialNotifications);
@@ -107,7 +160,7 @@ export default function AnalyticsDashboard() {
   //   }
   // };
 
-  const handleRefreshData = () => {
+  const handleRefreshData = useCallback(() => {
     try {
       // duplicate refresh notification block
       const alreadyRefreshing = notifications.some(
@@ -208,7 +261,7 @@ export default function AnalyticsDashboard() {
         ...prev,
       ]);
     }
-  };
+  }, [notifications]);
 
   useEffect(() => {
     if (!open) return;
@@ -237,30 +290,37 @@ export default function AnalyticsDashboard() {
     };
   }, [open]);
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  const unreadCount = useMemo(
+    () => notifications.filter((n) => !n.read).length,
+    [notifications]
+  );
 
-  const markAllRead = () => {
+  const handleToggleNotifications = useCallback(() => {
+    setOpen((prev) => !prev);
+  }, []);
+
+  const markAllRead = useCallback(() => {
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-  };
+  }, []);
 
-  const clearNotifications = () => {
+  const clearNotifications = useCallback(() => {
     setNotifications([]);
-  };
+  }, []);
 
-  const handleNotificationClick = (id) => {
+  const handleNotificationClick = useCallback((id) => {
     setNotifications((prev) =>
       prev.map((n) => (n.id === id ? { ...n, read: true } : n))
     );
-  };
+  }, []);
 
-  const handleRemoveNotification = (id) => {
+  const handleRemoveNotification = useCallback((id) => {
     setNotifications((prev) => prev.filter((n) => n.id !== id));
-  };
+  }, []);
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-full bg-gray-50">
       {/* HEADER */}
-      <header className="flex items-center justify-between px-6 py-4 border-b">
+      <header className="flex flex-col gap-3 px-4 py-4 border-b sm:flex-row sm:items-center sm:justify-between sm:px-6">
         <div>
           <h1 className="text-lg font-semibold text-gray-800">
             Analytics & Insights
@@ -271,7 +331,7 @@ export default function AnalyticsDashboard() {
         </div>
         {/* <Bell className="text-gray-500" /> */}
         <div className="relative" ref={notificationMenuRef}>
-          <button onClick={() => setOpen(!open)} className="relative">
+          <button onClick={handleToggleNotifications} className="relative">
             <Bell className="text-gray-600" />
 
             {unreadCount > 0 && (
@@ -321,49 +381,12 @@ export default function AnalyticsDashboard() {
                   </p>
                 ) : (
                   notifications.map((n) => (
-                    <div
+                    <NotificationItem
                       key={n.id}
-                      onClick={() => handleNotificationClick(n.id)}
-                      className={`px-4 py-3 border-b last:border-b-0 flex gap-3 ${
-                        !n.read ? "bg-blue-50" : ""
-                      }`}
-                    >
-                      <div className="mt-1">
-                        {n.type === "success" && (
-                          <CheckCircle className="text-green-600" size={18} />
-                        )}
-                        {n.type === "warning" && (
-                          <AlertTriangle
-                            className="text-yellow-500"
-                            size={18}
-                          />
-                        )}
-
-                        {!["success", "warning"].includes(n.type) && (
-                          <AlertTriangle className="text-gray-400" size={18} />
-                        )}
-                      </div>
-
-                      <div className="flex-1">
-                        <p className="text-sm text-gray-800">
-                          {n.message || "No message available"}
-                        </p>
-                        <p className="text-xs text-gray-400 mt-0.5">
-                          {n.time || "Just now"}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          handleRemoveNotification(n.id);
-                        }}
-                        className="text-gray-400 hover:text-red-500"
-                        title="Remove notification"
-                      >
-                        <X size={12} />
-                      </button>
-                    </div>
+                      notification={n}
+                      onClick={handleNotificationClick}
+                      onRemove={handleRemoveNotification}
+                    />
                   ))
                 )}
               </div>
@@ -373,18 +396,18 @@ export default function AnalyticsDashboard() {
       </header>
 
       {loading && (
-        <div className="mx-6 mt-4 text-sm text-gray-500 flex items-center gap-2">
+        <div className="mx-4 mt-4 text-sm text-gray-500 flex items-center gap-2 sm:mx-6">
           <span className="animate-spin h-4 w-4 border-2 border-gray-300 border-t-transparent rounded-full"></span>
           Loading analytics...
         </div>
       )}
       {error && (
-        <div className="mx-6 mt-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+        <div className="mx-4 mt-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm sm:mx-6">
           {error}
         </div>
       )}
 
-      <main className="p-6 space-y-6">
+      <main className="p-4 space-y-6 sm:p-6">
         {/* POWER BI STATUS */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 bg-white border rounded-xl p-7 shadow-sm">
           <div className="flex items-center gap-4">
@@ -439,7 +462,7 @@ export default function AnalyticsDashboard() {
         {/* POWER BI DASHBOARD SECTION */}
         <div className="bg-gray-50 border rounded-xl overflow-hidden">
           {/* TOP BAR */}
-          <div className="flex items-center justify-between px-6 py-4 border-b bg-white">
+          <div className="flex items-center justify-between px-4 py-4 border-b bg-white sm:px-6">
             <div className="flex items-center gap-2">
               <BarChart3 size={18} className="text-blue-600" />
               <p className="font-semibold text-gray-800">
@@ -462,7 +485,7 @@ export default function AnalyticsDashboard() {
           </div>
 
           {/* EMBED PLACEHOLDER AREA */}
-          <div className="h-[520px] flex flex-col items-center justify-center text-center px-6">
+          <div className="h-[360px] flex flex-col items-center justify-center text-center px-6 sm:h-[520px]">
             <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center mb-4">
               <BarChart3 className="text-blue-400" />
             </div>

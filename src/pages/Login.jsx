@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useCallback, memo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Eye, EyeOff } from "lucide-react";
 import { getErrorMessage, requestJson, requestWithRetry } from "../utils/api";
@@ -14,11 +14,43 @@ const AUTH_ENDPOINTS = {
   resetPassword: "/api/auth/reset-password",
 };
 
+const HISTORY_KEY = "loginHistory";
+const BLOCKED_KEY = "blockedUsers";
+
+const appendLoginHistory = (email) => {
+  try {
+    const now = new Date();
+    const safeEmail = String(email || "").toLowerCase();
+    const nameFromEmail = safeEmail.split("@")[0] || "User";
+
+    const entry = {
+      id: `lh-${now.getTime()}`,
+      name: nameFromEmail,
+      email: safeEmail,
+      role: safeEmail.includes("admin") ? "Admin" : "User",
+      date: now.toISOString().slice(0, 10),
+      time: now.toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+      timestamp: now.getTime(),
+    };
+
+    const raw = localStorage.getItem(HISTORY_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    const next = Array.isArray(parsed) ? [entry, ...parsed] : [entry];
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
+    window.dispatchEvent(new Event("loginHistoryUpdated"));
+  } catch (err) {
+    console.error("Failed to store login history:", err);
+  }
+};
+
 export default function AuthApp() {
   const [currentPage, setCurrentPage] = useState("login");
 
   return currentPage === "login" ? (
-    <Login 
+    <Login
       onNavigateToSignup={() => setCurrentPage("signup")}
       onNavigateToForgotPassword={() => setCurrentPage("forgot")}
     />
@@ -38,31 +70,44 @@ function Login({ onNavigateToSignup, onNavigateToForgotPassword }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const handleSignIn = async (event) => {
-    event?.preventDefault();
-    setError(null);
-    if (!email.trim() || !password.trim()) {
-      setError("Please enter both email and password.");
-      return;
-    }
-    setLoading(true);
-    try {
-      if (!USE_MOCK_AUTH) {
-        await requestWithRetry(() =>
-          requestJson(AUTH_ENDPOINTS.login, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ email, password }),
-          })
-        );
+  const handleSignIn = useCallback(
+    async (event) => {
+      event?.preventDefault();
+      setError(null);
+      if (!email.trim() || !password.trim()) {
+        setError("Please enter both email and password.");
+        return;
       }
-      navigate("/dashboard", { replace: true });
-    } catch (err) {
-      setError(getErrorMessage(err, "Unable to sign in."));
-    } finally {
-      setLoading(false);
-    }
-  };
+      try {
+        const blocked = JSON.parse(localStorage.getItem(BLOCKED_KEY) || "{}");
+        if (blocked[String(email).toLowerCase()]) {
+          setError("Your account is blocked. Please contact admin.");
+          return;
+        }
+      } catch (err) {
+        console.error("Blocked users check failed:", err);
+      }
+      setLoading(true);
+      try {
+        if (!USE_MOCK_AUTH) {
+          await requestWithRetry(() =>
+            requestJson(AUTH_ENDPOINTS.login, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ email, password }),
+            })
+          );
+        }
+        appendLoginHistory(email);
+        navigate("/dashboard", { replace: true });
+      } catch (err) {
+        setError(getErrorMessage(err, "Unable to sign in."));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [email, navigate, password]
+  );
 
   return (
     <div className="min-h-screen flex">
@@ -73,8 +118,18 @@ function Login({ onNavigateToSignup, onNavigateToForgotPassword }) {
           {/* LOGO */}
           <div className="flex items-center gap-3 mb-20">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-600">
-              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              <svg
+                className="w-6 h-6 text-white"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2.5}
+                  d="M13 10V3L4 14h7v7l9-11h-7z"
+                />
               </svg>
             </div>
             <div>
@@ -157,7 +212,7 @@ function Login({ onNavigateToSignup, onNavigateToForgotPassword }) {
               <label className="block text-sm font-medium text-slate-700">
                 Password
               </label>
-              <button 
+              <button
                 onClick={onNavigateToForgotPassword}
                 className="text-sm text-blue-600 hover:underline"
               >
@@ -220,7 +275,7 @@ function ForgotPassword({ onNavigateToLogin }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const sendResetOtp = async () => {
+  const sendResetOtp = useCallback(async () => {
     setError(null);
     if (!email || !email.includes("@")) {
       setError("Please enter a valid email address.");
@@ -251,28 +306,34 @@ function ForgotPassword({ onNavigateToLogin }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [email]);
 
-  const handleOtpChange = (index, value) => {
-    if (value.length > 1) value = value.slice(0, 1);
-    if (!/^\d*$/.test(value)) return;
-    
-    const newOtp = [...otp];
-    newOtp[index] = value;
-    setOtp(newOtp);
+  const handleOtpChange = useCallback(
+    (index, value) => {
+      if (value.length > 1) value = value.slice(0, 1);
+      if (!/^\d*$/.test(value)) return;
 
-    if (value && index < 5) {
-      document.getElementById(`reset-otp-${index + 1}`)?.focus();
-    }
-  };
+      const newOtp = [...otp];
+      newOtp[index] = value;
+      setOtp(newOtp);
 
-  const handleOtpKeyDown = (index, e) => {
-    if (e.key === "Backspace" && !otp[index] && index > 0) {
-      document.getElementById(`reset-otp-${index - 1}`)?.focus();
-    }
-  };
+      if (value && index < 5) {
+        document.getElementById(`reset-otp-${index + 1}`)?.focus();
+      }
+    },
+    [otp]
+  );
 
-  const verifyResetOtp = async () => {
+  const handleOtpKeyDown = useCallback(
+    (index, e) => {
+      if (e.key === "Backspace" && !otp[index] && index > 0) {
+        document.getElementById(`reset-otp-${index - 1}`)?.focus();
+      }
+    },
+    [otp]
+  );
+
+  const verifyResetOtp = useCallback(async () => {
     setError(null);
     const enteredOtp = otp.join("");
     if (USE_MOCK_AUTH) {
@@ -299,9 +360,9 @@ function ForgotPassword({ onNavigateToLogin }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [email, generatedOtp, otp]);
 
-  const handleResetPassword = async () => {
+  const handleResetPassword = useCallback(async () => {
     setError(null);
     if (!newPassword || !confirmPassword) {
       setError("Please fill in both password fields.");
@@ -335,7 +396,7 @@ function ForgotPassword({ onNavigateToLogin }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [confirmPassword, email, newPassword, onNavigateToLogin]);
 
   return (
     <div className="min-h-screen flex">
@@ -345,8 +406,18 @@ function ForgotPassword({ onNavigateToLogin }) {
           {/* LOGO */}
           <div className="flex items-center gap-3 mb-20">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-600">
-              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              <svg
+                className="w-6 h-6 text-white"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2.5}
+                  d="M13 10V3L4 14h7v7l9-11h-7z"
+                />
               </svg>
             </div>
             <div>
@@ -365,33 +436,82 @@ function ForgotPassword({ onNavigateToLogin }) {
           </h1>
 
           <p className="text-lg text-slate-400 max-w-md mb-14">
-            We'll help you regain access to your account quickly and securely through our verification process.
+            We'll help you regain access to your account quickly and securely
+            through our verification process.
           </p>
 
           {/* STEPS */}
           <div className="space-y-4">
-            <div className={`flex items-center gap-3 ${step >= 1 ? 'text-white' : 'text-slate-500'}`}>
-              <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-semibold ${step >= 1 ? 'bg-blue-500' : 'bg-white/10'}`}>
+            <div
+              className={`flex items-center gap-3 ${
+                step >= 1 ? "text-white" : "text-slate-500"
+              }`}
+            >
+              <div
+                className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-semibold ${
+                  step >= 1 ? "bg-blue-500" : "bg-white/10"
+                }`}
+              >
                 {step > 1 ? (
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M5 13l4 4L19 7"
+                    />
                   </svg>
-                ) : '1'}
+                ) : (
+                  "1"
+                )}
               </div>
               <p>Enter your email address</p>
             </div>
-            <div className={`flex items-center gap-3 ${step >= 2 ? 'text-white' : 'text-slate-500'}`}>
-              <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-semibold ${step >= 2 ? 'bg-blue-500' : 'bg-white/10'}`}>
+            <div
+              className={`flex items-center gap-3 ${
+                step >= 2 ? "text-white" : "text-slate-500"
+              }`}
+            >
+              <div
+                className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-semibold ${
+                  step >= 2 ? "bg-blue-500" : "bg-white/10"
+                }`}
+              >
                 {step > 2 ? (
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M5 13l4 4L19 7"
+                    />
                   </svg>
-                ) : '2'}
+                ) : (
+                  "2"
+                )}
               </div>
               <p>Verify OTP code</p>
             </div>
-            <div className={`flex items-center gap-3 ${step >= 3 ? 'text-white' : 'text-slate-500'}`}>
-              <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-semibold ${step >= 3 ? 'bg-blue-500' : 'bg-white/10'}`}>
+            <div
+              className={`flex items-center gap-3 ${
+                step >= 3 ? "text-white" : "text-slate-500"
+              }`}
+            >
+              <div
+                className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-semibold ${
+                  step >= 3 ? "bg-blue-500" : "bg-white/10"
+                }`}
+              >
                 3
               </div>
               <p>Create new password</p>
@@ -443,7 +563,7 @@ function ForgotPassword({ onNavigateToLogin }) {
                 />
               </div>
 
-              <button 
+              <button
                 onClick={sendResetOtp}
                 className="w-full rounded-lg bg-blue-500 py-3 font-medium text-white hover:bg-blue-600 transition mb-6"
               >
@@ -454,8 +574,18 @@ function ForgotPassword({ onNavigateToLogin }) {
                 onClick={onNavigateToLogin}
                 className="w-full flex items-center justify-center gap-2 text-slate-600 hover:text-slate-900"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M10 19l-7-7m0 0l7-7m-7 7h18"
+                  />
                 </svg>
                 Back to login
               </button>
@@ -467,15 +597,26 @@ function ForgotPassword({ onNavigateToLogin }) {
             <>
               <div className="text-center mb-10">
                 <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-100 mb-4">
-                  <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                  <svg
+                    className="w-8 h-8 text-blue-600"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                    />
                   </svg>
                 </div>
                 <h2 className="text-3xl font-semibold text-slate-900 mb-2">
                   Check your email
                 </h2>
                 <p className="text-slate-500">
-                  We sent a code to<br />
+                  We sent a code to
+                  <br />
                   <span className="font-medium text-slate-700">{email}</span>
                 </p>
               </div>
@@ -518,8 +659,18 @@ function ForgotPassword({ onNavigateToLogin }) {
                 onClick={() => setStep(1)}
                 className="w-full flex items-center justify-center gap-2 text-slate-600 hover:text-slate-900 mt-6"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M10 19l-7-7m0 0l7-7m-7 7h18"
+                  />
                 </svg>
                 Back
               </button>
@@ -531,15 +682,26 @@ function ForgotPassword({ onNavigateToLogin }) {
             <>
               <div className="text-center mb-10">
                 <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-green-100 mb-4">
-                  <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  <svg
+                    className="w-8 h-8 text-green-600"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M5 13l4 4L19 7"
+                    />
                   </svg>
                 </div>
                 <h2 className="text-3xl font-semibold text-slate-900 mb-2">
                   Set new password
                 </h2>
                 <p className="text-slate-500">
-                  Your new password must be different from previously used passwords
+                  Your new password must be different from previously used
+                  passwords
                 </p>
               </div>
 
@@ -563,7 +725,9 @@ function ForgotPassword({ onNavigateToLogin }) {
                     {showNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
                 </div>
-                <p className="text-xs text-slate-500 mt-1">Must be at least 6 characters</p>
+                <p className="text-xs text-slate-500 mt-1">
+                  Must be at least 6 characters
+                </p>
               </div>
 
               <div className="mb-6">
@@ -583,12 +747,16 @@ function ForgotPassword({ onNavigateToLogin }) {
                     onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                     className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400"
                   >
-                    {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    {showConfirmPassword ? (
+                      <EyeOff size={18} />
+                    ) : (
+                      <Eye size={18} />
+                    )}
                   </button>
                 </div>
               </div>
 
-              <button 
+              <button
                 onClick={handleResetPassword}
                 className="w-full rounded-lg bg-blue-500 py-3 font-medium text-white hover:bg-blue-600 transition mb-6"
               >
@@ -599,8 +767,18 @@ function ForgotPassword({ onNavigateToLogin }) {
                 onClick={onNavigateToLogin}
                 className="w-full flex items-center justify-center gap-2 text-slate-600 hover:text-slate-900"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M10 19l-7-7m0 0l7-7m-7 7h18"
+                  />
                 </svg>
                 Back to login
               </button>
@@ -665,7 +843,7 @@ function Signup({ onNavigateToLogin }) {
   // const handleOtpChange = (index, value) => {
   //   if (value.length > 1) value = value.slice(0, 1);
   //   if (!/^\d*$/.test(value)) return;
-  //   
+  //
   //   const newOtp = [...otp];
   //   newOtp[index] = value;
   //   setOtp(newOtp);
@@ -713,7 +891,7 @@ function Signup({ onNavigateToLogin }) {
   //   }
   // };
 
-  const handleCreateAccount = async () => {
+  const handleCreateAccount = useCallback(async () => {
     setError(null);
     if (!fullName || !email || !password || !confirmPassword) {
       setError("Please fill in all fields.");
@@ -748,7 +926,7 @@ function Signup({ onNavigateToLogin }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [confirmPassword, email, fullName, password]);
 
   return (
     <div className="min-h-screen flex">
@@ -759,8 +937,18 @@ function Signup({ onNavigateToLogin }) {
           {/* LOGO */}
           <div className="flex items-center gap-3 mb-20">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-600">
-              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              <svg
+                className="w-6 h-6 text-white"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2.5}
+                  d="M13 10V3L4 14h7v7l9-11h-7z"
+                />
               </svg>
             </div>
             <div>
@@ -779,7 +967,8 @@ function Signup({ onNavigateToLogin }) {
           </h1>
 
           <p className="text-lg text-slate-400 max-w-md mb-14">
-            Join thousands of professionals who never miss a tender opportunity with our automated monitoring system.
+            Join thousands of professionals who never miss a tender opportunity
+            with our automated monitoring system.
           </p>
 
           {/* FEATURES */}
@@ -870,7 +1059,9 @@ function Signup({ onNavigateToLogin }) {
                 {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>
             </div>
-            <p className="text-xs text-slate-500 mt-1">Must be at least 6 characters</p>
+            <p className="text-xs text-slate-500 mt-1">
+              Must be at least 6 characters
+            </p>
           </div>
 
           {/* CONFIRM PASSWORD */}
@@ -897,7 +1088,7 @@ function Signup({ onNavigateToLogin }) {
           </div>
 
           {/* BUTTON */}
-          <button 
+          <button
             onClick={handleCreateAccount}
             className="w-full rounded-lg bg-blue-500 py-3 font-medium text-white hover:bg-blue-600 transition mb-5"
           >
@@ -921,8 +1112,18 @@ function Signup({ onNavigateToLogin }) {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl text-center">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-green-100 mb-4">
-              <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              <svg
+                className="w-8 h-8 text-green-600"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M5 13l4 4L19 7"
+                />
               </svg>
             </div>
             <h3 className="text-2xl font-semibold text-slate-900 mb-2">
@@ -932,7 +1133,8 @@ function Signup({ onNavigateToLogin }) {
               {/* We have sent you verification link to your email, kindly verify your email to login. */}
               {/* Check your email for a verification link and confirm to log in. */}
               {/* A verification link has been sent to your email. Verify to continue. */}
-              We sent a verification link to your email. Please verify to access your account.
+              We sent a verification link to your email. Please verify to access
+              your account.
             </p>
             <button
               onClick={() => {
@@ -1010,29 +1212,38 @@ function Signup({ onNavigateToLogin }) {
   );
 }
 
-
 // ==================== SHARED COMPONENTS ====================
-function StatCard({ title, subtitle }) {
+const StatCard = memo(function StatCard({ title, subtitle }) {
   return (
     <div className="rounded-xl bg-white/5 px-6 py-5 border border-white/5">
       <p className="text-xl font-semibold">{title}</p>
       <p className="text-sm text-slate-400">{subtitle}</p>
     </div>
   );
-}
+});
 
-function FeatureItem({ text }) {
+const FeatureItem = memo(function FeatureItem({ text }) {
   return (
     <div className="flex items-center gap-3">
       <div className="flex-shrink-0 w-5 h-5 rounded-full bg-blue-500/20 flex items-center justify-center">
-        <svg className="w-3 h-3 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+        <svg
+          className="w-3 h-3 text-blue-400"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M5 13l4 4L19 7"
+          />
         </svg>
       </div>
       <p className="text-slate-300">{text}</p>
     </div>
   );
-}
+});
 // import React, { useState } from "react";
 // import { useNavigate } from "react-router-dom";
 // import { Eye, EyeOff } from "lucide-react";
@@ -1053,7 +1264,7 @@ function FeatureItem({ text }) {
 //   const [currentPage, setCurrentPage] = useState("login");
 
 //   return currentPage === "login" ? (
-//     <Login 
+//     <Login
 //       onNavigateToSignup={() => setCurrentPage("signup")}
 //       onNavigateToForgotPassword={() => setCurrentPage("forgot")}
 //     />
@@ -1192,7 +1403,7 @@ function FeatureItem({ text }) {
 //               <label className="block text-sm font-medium text-slate-700">
 //                 Password
 //               </label>
-//               <button 
+//               <button
 //                 onClick={onNavigateToForgotPassword}
 //                 className="text-sm text-blue-600 hover:underline"
 //               >
@@ -1291,7 +1502,7 @@ function FeatureItem({ text }) {
 //   const handleOtpChange = (index, value) => {
 //     if (value.length > 1) value = value.slice(0, 1);
 //     if (!/^\d*$/.test(value)) return;
-    
+
 //     const newOtp = [...otp];
 //     newOtp[index] = value;
 //     setOtp(newOtp);
@@ -1478,7 +1689,7 @@ function FeatureItem({ text }) {
 //                 />
 //               </div>
 
-//               <button 
+//               <button
 //                 onClick={sendResetOtp}
 //                 className="w-full rounded-lg bg-blue-500 py-3 font-medium text-white hover:bg-blue-600 transition mb-6"
 //               >
@@ -1623,7 +1834,7 @@ function FeatureItem({ text }) {
 //                 </div>
 //               </div>
 
-//               <button 
+//               <button
 //                 onClick={handleResetPassword}
 //                 className="w-full rounded-lg bg-blue-500 py-3 font-medium text-white hover:bg-blue-600 transition mb-6"
 //               >
@@ -1699,7 +1910,7 @@ function FeatureItem({ text }) {
 //   const handleOtpChange = (index, value) => {
 //     if (value.length > 1) value = value.slice(0, 1);
 //     if (!/^\d*$/.test(value)) return;
-    
+
 //     const newOtp = [...otp];
 //     newOtp[index] = value;
 //     setOtp(newOtp);
@@ -1964,7 +2175,7 @@ function FeatureItem({ text }) {
 //           </div>
 
 //           {/* BUTTON */}
-//           <button 
+//           <button
 //             onClick={handleCreateAccount}
 //             className="w-full rounded-lg bg-blue-500 py-3 font-medium text-white hover:bg-blue-600 transition mb-5"
 //           >
@@ -2046,7 +2257,6 @@ function FeatureItem({ text }) {
 //   );
 // }
 
-
 // // ==================== SHARED COMPONENTS ====================
 // function StatCard({ title, subtitle }) {
 //   return (
@@ -2069,7 +2279,6 @@ function FeatureItem({ text }) {
 //     </div>
 //   );
 // }
-
 
 // import React, { useState } from "react";
 // import { Eye, EyeOff } from "lucide-react";
@@ -2203,7 +2412,7 @@ function FeatureItem({ text }) {
 //           </div>
 
 //           {/* BUTTON */}
-//           <button 
+//           <button
 //             onClick={handleSignIn}
 //             className="w-full rounded-lg bg-blue-500 py-3 font-medium text-white hover:bg-blue-600 transition mb-6"
 //           >
@@ -2254,7 +2463,7 @@ function FeatureItem({ text }) {
 //   const handleOtpChange = (index, value) => {
 //     if (value.length > 1) value = value.slice(0, 1);
 //     if (!/^\d*$/.test(value)) return;
-    
+
 //     const newOtp = [...otp];
 //     newOtp[index] = value;
 //     setOtp(newOtp);
@@ -2395,7 +2604,7 @@ function FeatureItem({ text }) {
 //               Phone number
 //             </label>
 //             <div className="flex gap-2">
-//               <select 
+//               <select
 //                 value={countryCode}
 //                 onChange={(e) => setCountryCode(e.target.value)}
 //                 className="rounded-lg border border-slate-200 px-3 py-3 text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
@@ -2661,7 +2870,7 @@ function FeatureItem({ text }) {
 //           </div>
 
 //           {/* BUTTON */}
-//           <button 
+//           <button
 //             onClick={handleCreateAccount}
 //             className="w-full rounded-lg bg-blue-500 py-3 font-medium text-white hover:bg-blue-600 transition mb-5"
 //           >

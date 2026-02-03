@@ -1,4 +1,10 @@
-import React, { useMemo, useState, useEffect, useRef } from "react";
+import React, {
+  useMemo,
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+} from "react";
 import {
   FileText,
   Target,
@@ -213,7 +219,8 @@ function isValidTender(tender) {
   if (!VALID_TENDER_STATUS.includes(tender.status)) return false;
   if (typeof tender.title !== "string" || tender.title.trim() === "")
     return false;
-  if (typeof tender.code !== "string" || tender.code.trim() === "") return false;
+  if (typeof tender.code !== "string" || tender.code.trim() === "")
+    return false;
   if (typeof tender.agency !== "string" || tender.agency.trim() === "")
     return false;
   if (typeof tender.source !== "string" || tender.source.trim() === "")
@@ -259,9 +266,7 @@ const Dashboard = () => {
     INITIAL_DASHBOARD.notifications
   );
   const [tenderList, setTenderList] = useState(INITIAL_DASHBOARD.tenders);
-  const [topKeywords, setTopKeywords] = useState(
-    INITIAL_DASHBOARD.topKeywords
-  );
+  const [topKeywords, setTopKeywords] = useState(INITIAL_DASHBOARD.topKeywords);
   const [sources, setSources] = useState(INITIAL_DASHBOARD.sources);
   const [lastSyncAt, setLastSyncAt] = useState(INITIAL_DASHBOARD.lastSyncAt);
   const [nextSyncIn, setNextSyncIn] = useState(INITIAL_DASHBOARD.nextSyncIn);
@@ -304,7 +309,10 @@ const Dashboard = () => {
   //   fetchDashboard();
   // }, []);
 
-  const unreadCount = notifications.filter((n) => !n.isRead).length;
+  const unreadCount = useMemo(
+    () => notifications.filter((n) => !n.isRead).length,
+    [notifications]
+  );
 
   const normalizedSearch = searchQuery.trim().toLowerCase();
 
@@ -367,40 +375,49 @@ const Dashboard = () => {
     };
   }, [showNotifications]);
 
-  const handleToggleNotifications = () => {
+  const handleToggleNotifications = useCallback(() => {
     setShowNotifications((prev) => !prev);
-  };
+  }, []);
 
-  const handleMarkAllRead = () => {
+  const handleMarkAllRead = useCallback(() => {
     setNotifications((list) => list.map((n) => ({ ...n, isRead: true })));
-  };
+  }, []);
 
-  const handleClearNotifications = () => {
+  const handleClearNotifications = useCallback(() => {
     setNotifications([]);
-  };
+  }, []);
 
-  const handleNotificationClick = (id) => {
+  const handleNotificationClick = useCallback((id) => {
     setNotifications((list) =>
       list.map((n) => (n.id === id ? { ...n, isRead: true } : n))
     );
-  };
+  }, []);
 
-  const handleRemoveNotification = (id) => {
+  const handleRemoveNotification = useCallback((id) => {
     setNotifications((list) => list.filter((n) => n.id !== id));
-  };
+  }, []);
 
-  const totalPages = Math.max(1, Math.ceil(filteredTenders.length / pageSize));
+  const totalPages = useMemo(
+    () => Math.max(1, Math.ceil(filteredTenders.length / pageSize)),
+    [filteredTenders.length, pageSize]
+  );
   const safePage = Math.min(currentPage, totalPages);
   const startIndex = (safePage - 1) * pageSize;
   const endIndex = startIndex + pageSize;
-  const paginatedTenders = filteredTenders.slice(startIndex, endIndex);
+  const paginatedTenders = useMemo(
+    () => filteredTenders.slice(startIndex, endIndex),
+    [filteredTenders, startIndex, endIndex]
+  );
 
-  const goToPage = (page) => {
-    const next = Math.min(Math.max(page, 1), totalPages);
-    setCurrentPage(next);
-  };
+  const goToPage = useCallback(
+    (page) => {
+      const next = Math.min(Math.max(page, 1), totalPages);
+      setCurrentPage(next);
+    },
+    [totalPages]
+  );
 
-  const getPageItems = (total, current) => {
+  const getPageItems = useCallback((total, current) => {
     if (total <= 7) {
       return Array.from({ length: total }, (_, idx) => ({
         type: "page",
@@ -438,9 +455,12 @@ const Dashboard = () => {
     pushDots("end");
     pushPage(total);
     return items;
-  };
+  }, []);
 
-  const pageItems = getPageItems(totalPages, safePage);
+  const pageItems = useMemo(
+    () => getPageItems(totalPages, safePage),
+    [getPageItems, totalPages, safePage]
+  );
 
   const derivedStats = useMemo(
     () => computeStatsFromData(tenderList, sources, notifications),
@@ -511,7 +531,7 @@ const Dashboard = () => {
     }
   };
 
-  const updateTenderStatus = (tenderId, status) => {
+  const updateTenderStatus = useCallback((tenderId, status) => {
     setTenderList((prev) =>
       prev.map((tender) =>
         tender.id === tenderId ? { ...tender, status } : tender
@@ -523,20 +543,26 @@ const Dashboard = () => {
 
     // TODO BACKEND: status update ke liye axios PATCH/PUT yaha lagega
     // axios.patch(`/api/tenders/${tenderId}`, { status });
-  };
+  }, []);
 
-  const handleViewTender = (tender) => {
-    const nextStatus = tender.status === "SAVED" ? "SAVED" : "VIEWED";
-    updateTenderStatus(tender.id, nextStatus);
-    setSelectedTender(tender);
-  };
+  const handleViewTender = useCallback(
+    (tender) => {
+      const nextStatus = tender.status === "SAVED" ? "SAVED" : "VIEWED";
+      updateTenderStatus(tender.id, nextStatus);
+      setSelectedTender(tender);
+    },
+    [updateTenderStatus]
+  );
 
-  const handleToggleSave = (tender) => {
-    const nextStatus = tender.status === "SAVED" ? "VIEWED" : "SAVED";
-    updateTenderStatus(tender.id, nextStatus);
-  };
+  const handleToggleSave = useCallback(
+    (tender) => {
+      const nextStatus = tender.status === "SAVED" ? "VIEWED" : "SAVED";
+      updateTenderStatus(tender.id, nextStatus);
+    },
+    [updateTenderStatus]
+  );
 
-  const handleAttachmentOpen = (attachment) => {
+  const handleAttachmentOpen = useCallback((attachment) => {
     if (!attachment) return;
 
     if (!USE_MOCK_ATTACHMENTS && attachment.url) {
@@ -554,9 +580,9 @@ const Dashboard = () => {
     link.click();
     link.remove();
     URL.revokeObjectURL(objectUrl);
-  };
+  }, []);
 
-  const handleSyncNow = async () => {
+  const handleSyncNow = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -586,15 +612,15 @@ const Dashboard = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [notifications, sources, tenderList]);
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-full bg-gray-50">
       {/* Main Content */}
       <div className="overflow-y-auto">
         {/* Header */}
-        <div className="bg-white border-b border-gray-200 px-6 py-3">
-          <div className="flex items-center justify-between">
+        <div className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-xl font-semibold text-gray-800">Dashboard</h2>
               <p className="text-xs text-gray-500">
@@ -617,11 +643,13 @@ const Dashboard = () => {
                       setSearchQuery(value);
                     }
                   }}
-                  className="w-full md:w-64 pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm font-semibold"
+                  className="w-full sm:w-64 pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm font-semibold"
                 />
               </div>
 
-              <div className="text-xs text-gray-500">Last sync: {lastSyncAt}</div>
+              <div className="text-xs text-gray-500">
+                Last sync: {lastSyncAt}
+              </div>
 
               <button
                 onClick={handleSyncNow}
@@ -649,7 +677,9 @@ const Dashboard = () => {
                 {showNotifications && (
                   <div className="absolute right-0 mt-2 w-72 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
                     <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200">
-                      <span className="text-sm font-semibold">Notifications</span>
+                      <span className="text-sm font-semibold">
+                        Notifications
+                      </span>
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
@@ -716,24 +746,26 @@ const Dashboard = () => {
         </div>
 
         {/* Status Banner */}
-        <div className="mx-6 mt-4 bg-green-100 border border-green-300 rounded-lg p-4 flex items-center justify-between">
+        <div className="mx-4 mt-4 bg-green-100 border border-green-300 rounded-lg p-4 flex flex-col gap-2 sm:mx-6 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3 text-green-900">
             <div className="w-1.5 h-1.5 bg-green-500 rounded-full"></div>
             <span className="text-sm font-semibold">
               System is active and monitoring
             </span>
           </div>
-          <div className="text-sm text-green-700">Next sync in {nextSyncIn}</div>
+          <div className="text-sm text-green-700">
+            Next sync in {nextSyncIn}
+          </div>
         </div>
 
         {loading && (
-          <div className="mx-6 mt-4 text-sm text-gray-500 flex items-center gap-2">
+          <div className="mx-4 mt-4 text-sm text-gray-500 flex items-center gap-2 sm:mx-6">
             <span className="animate-spin h-4 w-4 border-2 border-gray-300 border-t-transparent rounded-full"></span>
             Loading dashboard...
           </div>
         )}
         {error && (
-          <div className="mx-6 mt-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+          <div className="mx-4 mt-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm sm:mx-6">
             {error}
           </div>
         )}
@@ -1083,7 +1115,7 @@ const Dashboard = () => {
         </div>
 
         {/* Source Status Overview */}
-        <div className="px-6 pb-6 mt-4">
+        <div className="px-4 pb-6 mt-4 sm:px-6">
           <div className="bg-white border border-gray-200 rounded-lg">
             <div className="px-4 py-3 border-b border-gray-200">
               <h3 className="text-base font-semibold">

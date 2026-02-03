@@ -1,6 +1,6 @@
 import React from "react";
 // import { useMemo, useState } from "react";
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useCallback } from "react";
 // import axios from "axios";
 import { EmptyState } from "../components/States";
 import { getErrorMessage, requestJson, requestWithRetry } from "../utils/api";
@@ -242,7 +242,7 @@ export default function SystemLogs() {
     return filteredLogs.filter(isValidLog);
   }, [filteredLogs]);
 
-  const exportLogs = () => {
+  const exportLogs = useCallback(() => {
     try {
       setError(null);
       if (exportableLogs.length === 0) {
@@ -270,7 +270,7 @@ export default function SystemLogs() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [exportableLogs]);
 
   const stats = useMemo(() => {
     const validLogs = logs.filter(isValidLog);
@@ -283,7 +283,7 @@ export default function SystemLogs() {
     };
   }, [logs]);
 
-  const clearAll = () => setLogs([]);
+  const clearAll = useCallback(() => setLogs([]), []);
   // TODO BACKEND: clear all logs ke liye axios call yaha lagega
   // const clearAll = async () => {
   //   try {
@@ -327,24 +327,36 @@ export default function SystemLogs() {
       console.error("Error setting notifications:", err);
     }
   }, [logs]);
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  const unreadCount = useMemo(
+    () => notifications.filter((n) => !n.read).length,
+    [notifications]
+  );
 
   useEffect(() => {
     setCurrentPage(1);
   }, [search, statusFilter, selectedDate]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredLogs.length / pageSize));
+  const totalPages = useMemo(
+    () => Math.max(1, Math.ceil(filteredLogs.length / pageSize)),
+    [filteredLogs.length, pageSize]
+  );
   const safePage = Math.min(currentPage, totalPages);
   const startIndex = (safePage - 1) * pageSize;
   const endIndex = startIndex + pageSize;
-  const paginatedLogs = filteredLogs.slice(startIndex, endIndex);
+  const paginatedLogs = useMemo(
+    () => filteredLogs.slice(startIndex, endIndex),
+    [filteredLogs, startIndex, endIndex]
+  );
 
-  const goToPage = (page) => {
-    const next = Math.min(Math.max(page, 1), totalPages);
-    setCurrentPage(next);
-  };
+  const goToPage = useCallback(
+    (page) => {
+      const next = Math.min(Math.max(page, 1), totalPages);
+      setCurrentPage(next);
+    },
+    [totalPages]
+  );
 
-  const getPageItems = (total, current) => {
+  const getPageItems = useCallback((total, current) => {
     if (total <= 7) {
       return Array.from({ length: total }, (_, idx) => ({
         type: "page",
@@ -382,9 +394,12 @@ export default function SystemLogs() {
     pushDots("end");
     pushPage(total);
     return items;
-  };
+  }, []);
 
-  const pageItems = getPageItems(totalPages, safePage);
+  const pageItems = useMemo(
+    () => getPageItems(totalPages, safePage),
+    [getPageItems, totalPages, safePage]
+  );
 
   return (
     <div className="w-full bg-white">
@@ -394,6 +409,7 @@ export default function SystemLogs() {
           <h1 className="text-2xl font-semibold text-gray-800">System Logs</h1>
           <p className="text-sm text-gray-500 mt-1">
             Monitor system activity and troubleshoot issues
+            {/* System Temporarily Offline */}
           </p>
         </div>
         {/* <Bell className="text-gray-400 self-end sm:self-auto" /> */}
@@ -574,32 +590,34 @@ export default function SystemLogs() {
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
           <div className="max-h-[520px] overflow-y-auto">
             <table className="w-full text-sm">
-            {/* ===== TABLE HEADER (DESKTOP ONLY) ===== */}
-            <thead className="hidden md:table-header-group bg-gray-50 text-gray-600">
-              <tr>
-                <th className="text-left px-6 py-4 font-medium">Timestamp</th>
-                <th className="text-left px-7 py-4 font-medium">Source</th>
-                <th className="text-center px-10 py-4 font-medium">Status</th>
-                <th className="text-center px-20 py-4 font-medium">Message</th>
-              </tr>
-            </thead>
-
-            {/* ===== TABLE BODY ===== */}
-            <tbody>
-              {paginatedLogs.length === 0 ? (
+              {/* ===== TABLE HEADER (DESKTOP ONLY) ===== */}
+              <thead className="hidden md:table-header-group bg-gray-50 text-gray-600">
                 <tr>
-                  <td colSpan={4} className="px-6 py-8">
-                    <EmptyState
-                      title="No logs found"
-                      message="Try adjusting filters or check back later."
-                    />
-                  </td>
+                  <th className="text-left px-6 py-4 font-medium">Timestamp</th>
+                  <th className="text-left px-7 py-4 font-medium">Source</th>
+                  <th className="text-center px-10 py-4 font-medium">Status</th>
+                  <th className="text-center px-20 py-4 font-medium">
+                    Message
+                  </th>
                 </tr>
-              ) : (
-                paginatedLogs.map((log, i) => (
-                  <tr
-                    key={`${log.date}-${log.time}-${log.source}-${i}`}
-                    className="
+              </thead>
+
+              {/* ===== TABLE BODY ===== */}
+              <tbody>
+                {paginatedLogs.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-6 py-8">
+                      <EmptyState
+                        title="No logs found"
+                        message="Try adjusting filters or check back later."
+                      />
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedLogs.map((log, i) => (
+                    <tr
+                      key={`${log.date}-${log.time}-${log.source}-${i}`}
+                      className="
             border-t
             md:table-row
             flex flex-col md:flex-row
@@ -607,44 +625,44 @@ export default function SystemLogs() {
             hover:bg-gray-50
             transition
           "
-                  >
-                    {/* TIMESTAMP */}
-                    <td className="px-6 py-3 text-gray-500 whitespace-nowrap">
-                      <span className="md:hidden font-semibold text-gray-600">
-                        Timestamp:&nbsp;
-                      </span>
-                      <span>{log.date}</span>
-                      <span className="ml-4">{log.time}</span>
-                    </td>
+                    >
+                      {/* TIMESTAMP */}
+                      <td className="px-6 py-3 text-gray-500 whitespace-nowrap">
+                        <span className="md:hidden font-semibold text-gray-600">
+                          Timestamp:&nbsp;
+                        </span>
+                        <span>{log.date}</span>
+                        <span className="ml-4">{log.time}</span>
+                      </td>
 
-                    {/* SOURCE */}
-                    <td className="px-6 py-3 font-medium text-gray-800 text-left">
-                      <span className="md:hidden font-semibold text-gray-600">
-                        Source:&nbsp;
-                      </span>
-                      {log.source}
-                    </td>
+                      {/* SOURCE */}
+                      <td className="px-6 py-3 font-medium text-gray-800 text-left">
+                        <span className="md:hidden font-semibold text-gray-600">
+                          Source:&nbsp;
+                        </span>
+                        {log.source}
+                      </td>
 
-                    {/* STATUS */}
-                    <td className="px-6 py-3 text-center">
-                      <span className="md:hidden font-semibold text-gray-600">
-                        Status:&nbsp;
-                      </span>
-                      <StatusBadge status={log.status} />
-                    </td>
+                      {/* STATUS */}
+                      <td className="px-6 py-3 text-center">
+                        <span className="md:hidden font-semibold text-gray-600">
+                          Status:&nbsp;
+                        </span>
+                        <StatusBadge status={log.status} />
+                      </td>
 
-                    {/* MESSAGE */}
-                    <td className="px-6 py-3 text-gray-600 text-center">
-                      <span className="md:hidden font-semibold text-gray-600">
-                        Message:&nbsp;
-                      </span>
-                      {log.message || "—"}
-                      {log.source || "Unknown"}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
+                      {/* MESSAGE */}
+                      <td className="px-6 py-3 text-gray-600 text-center">
+                        <span className="md:hidden font-semibold text-gray-600">
+                          Message:&nbsp;
+                        </span>
+                        {log.message || "—"}
+                        {log.source || "Unknown"}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
             </table>
           </div>
         </div>
@@ -652,8 +670,8 @@ export default function SystemLogs() {
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-4">
           <div className="text-sm text-gray-500 font-medium">
             Showing {filteredLogs.length === 0 ? 0 : startIndex + 1}-
-            {Math.min(endIndex, filteredLogs.length)} of{" "}
-            {filteredLogs.length} results
+            {Math.min(endIndex, filteredLogs.length)} of {filteredLogs.length}{" "}
+            results
           </div>
           <div className="flex items-center gap-2">
             <button
