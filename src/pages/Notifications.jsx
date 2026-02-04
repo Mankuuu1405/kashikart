@@ -2,21 +2,10 @@ import React, { useState, useEffect, useRef } from "react";
 import { Bell, Mail, Trash2, Clock, Plus, X } from "lucide-react";
 import { getErrorMessage, requestJson, requestWithRetry } from "../utils/api";
 
-// API Endpoints
-const NOTIFICATION_ENDPOINTS = {
-  settings: "/api/notifications/settings",
-  list: "/api/notifications",
-  unreadCount: "/api/notifications/count/unread",
-  markRead: (id) => `/api/notifications/${id}/read`,
-  markAllRead: "/api/notifications/mark-all-read",
-  delete: (id) => `/api/notifications/${id}`,
-  clearAll: "/api/notifications/clear-all",
-};
-
 const PRIMARY_BLUE = "#3B82F6";
 
 export default function Notifications() {
-  // Settings state
+  // Settings State
   const [desktop, setDesktop] = useState(true);
   const [email, setEmail] = useState(true);
   const [silent, setSilent] = useState(false);
@@ -24,14 +13,14 @@ export default function Notifications() {
   const [newEmail, setNewEmail] = useState("");
   const [startTime, setStartTime] = useState("22:00");
   const [endTime, setEndTime] = useState("07:00");
-  
-  // Alert triggers state
-  const [triggerNewTender, setTriggerNewTender] = useState(true);
-  const [triggerKeywordMatch, setTriggerKeywordMatch] = useState(true);
-  const [triggerDeadlineApproaching, setTriggerDeadlineApproaching] = useState(true);
-  const [triggerSystemErrors, setTriggerSystemErrors] = useState(false);
-  
-  // UI state
+
+  // Alert Triggers State
+  const [newTenderPublished, setNewTenderPublished] = useState(true);
+  const [keywordMatchFound, setKeywordMatchFound] = useState(true);
+  const [deadlineApproaching, setDeadlineApproaching] = useState(true);
+  const [systemErrors, setSystemErrors] = useState(false);
+
+  // UI State
   const [showSaveNotification, setShowSaveNotification] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -40,84 +29,71 @@ export default function Notifications() {
   const [unreadCount, setUnreadCount] = useState(0);
   const notificationMenuRef = useRef(null);
 
-  const safeEmailList = Array.isArray(emailList) ? emailList : [];
-
-  // Fetch notification settings from backend
+  // ============================================
+  // FETCH SETTINGS FROM BACKEND
+  // ============================================
   const fetchSettings = async () => {
     try {
       setLoading(true);
       setError(null);
 
       const data = await requestWithRetry(() =>
-        requestJson(NOTIFICATION_ENDPOINTS.settings)
+        requestJson("/api/notifications/settings")
       );
 
-      if (!data || typeof data !== "object") {
-        throw new Error("Invalid notification settings");
-      }
+      // Map backend response to state
+      setDesktop(data.enable_desktop ?? true);
+      setEmail(data.enable_email ?? true);
+      setSilent(data.enable_silent_hours ?? false);
+      setEmailList(data.email_recipients ?? []);
+      setStartTime(data.silent_start_time ?? "22:00");
+      setEndTime(data.silent_end_time ?? "07:00");
+      
+      setNewTenderPublished(data.new_tender_published ?? true);
+      setKeywordMatchFound(data.keyword_match_found ?? true);
+      setDeadlineApproaching(data.deadline_approaching ?? true);
+      setSystemErrors(data.system_errors ?? false);
 
-      // Update all state from backend response
-      setDesktop(Boolean(data.desktop));
-      setEmail(Boolean(data.email));
-      setSilent(Boolean(data.silent));
-      setEmailList(Array.isArray(data.emailList) ? data.emailList : []);
-      setStartTime(data.startTime || "22:00");
-      setEndTime(data.endTime || "07:00");
-      setTriggerNewTender(Boolean(data.trigger_new_tender));
-      setTriggerKeywordMatch(Boolean(data.trigger_keyword_match));
-      setTriggerDeadlineApproaching(Boolean(data.trigger_deadline_approaching));
-      setTriggerSystemErrors(Boolean(data.trigger_system_errors));
     } catch (err) {
-      console.error("Failed to fetch settings:", err);
+      console.error(err);
       setError(getErrorMessage(err, "Failed to load notification settings"));
     } finally {
       setLoading(false);
     }
   };
 
-  // Fetch notifications list from backend
+  // ============================================
+  // FETCH NOTIFICATIONS (For /notifications page)
+  // ============================================
   const fetchNotifications = async () => {
     try {
       setError(null);
+
       const data = await requestWithRetry(() =>
-        requestJson(NOTIFICATION_ENDPOINTS.list)
+        requestJson("/api/notifications/page/notifications?page=1&page_size=25")
       );
 
-      if (!data || typeof data !== "object") {
-        throw new Error("Invalid notifications format from server");
-      }
-
-      setNotifications(Array.isArray(data.items) ? data.items : []);
+      // Backend returns: { total, unread_count, items }
+      setNotifications(data.items || []);
       setUnreadCount(data.unread_count || 0);
+
     } catch (err) {
-      console.error("Failed to fetch notifications:", err);
+      console.error(err);
       setError(getErrorMessage(err, "Failed to load notifications"));
     }
   };
 
-  // Fetch unread count only
-  const fetchUnreadCount = async () => {
-    try {
-      const data = await requestWithRetry(() =>
-        requestJson(NOTIFICATION_ENDPOINTS.unreadCount)
-      );
-      setUnreadCount(data.unread_count || 0);
-    } catch (err) {
-      console.error("Failed to fetch unread count:", err);
-    }
-  };
-
-  // Load settings and notifications on mount
+  // ============================================
+  // INITIAL LOAD
+  // ============================================
   useEffect(() => {
     fetchSettings();
     fetchNotifications();
-    
-    // Poll for new notifications every 30 seconds
-    const interval = setInterval(fetchUnreadCount, 30000);
-    return () => clearInterval(interval);
   }, []);
 
-  // Close notification menu on outside click or ESC
+  // ============================================
+  // CLOSE DROPDOWN ON OUTSIDE CLICK
+  // ============================================
   useEffect(() => {
     if (!showNotifications) return;
 
@@ -145,106 +121,130 @@ export default function Notifications() {
     };
   }, [showNotifications]);
 
-  // Add email to list
+  // ============================================
+  // EMAIL MANAGEMENT
+  // ============================================
   const handleAddEmail = () => {
-    const trimmedEmail = newEmail.trim();
-    if (trimmedEmail && trimmedEmail.includes("@")) {
-      setEmailList([...emailList, trimmedEmail]);
+    if (newEmail.trim() && newEmail.includes("@")) {
+      setEmailList([...emailList, newEmail.trim()]);
       setNewEmail("");
     }
   };
 
-  // Remove email from list
   const handleRemoveEmail = (indexToRemove) => {
     setEmailList(emailList.filter((_, index) => index !== indexToRemove));
   };
 
-  // Save settings to backend
+  // ============================================
+  // SAVE SETTINGS
+  // ============================================
   const handleSaveChanges = async () => {
-    setError(null);
-    setLoading(true);
-
     try {
+      setError(null);
+      setLoading(true);
+
+      const payload = {
+        enable_desktop: desktop,
+        enable_email: email,
+        enable_silent_hours: silent,
+        email_recipients: emailList,
+        silent_start_time: startTime,
+        silent_end_time: endTime,
+        new_tender_published: newTenderPublished,
+        keyword_match_found: keywordMatchFound,
+        deadline_approaching: deadlineApproaching,
+        system_errors: systemErrors,
+      };
+
       await requestWithRetry(() =>
-        requestJson(NOTIFICATION_ENDPOINTS.settings, {
-          method: "PUT",
+        requestJson("/api/notifications/settings", {
+          method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            desktop,
-            email,
-            silent,
-            emailList: safeEmailList,
-            startTime,
-            endTime,
-            trigger_new_tender: triggerNewTender,
-            trigger_keyword_match: triggerKeywordMatch,
-            trigger_deadline_approaching: triggerDeadlineApproaching,
-            trigger_system_errors: triggerSystemErrors,
-          }),
+          body: JSON.stringify(payload),
         })
       );
 
-      // Show success notification
       setShowSaveNotification(true);
-      setTimeout(() => setShowSaveNotification(false), 3000);
+      setTimeout(() => {
+        setShowSaveNotification(false);
+      }, 3000);
+
     } catch (err) {
-      console.error("Failed to save settings:", err);
+      console.error(err);
       setError(getErrorMessage(err, "Failed to save settings"));
     } finally {
       setLoading(false);
     }
   };
 
-  // Toggle notifications dropdown
+  // ============================================
+  // NOTIFICATION ACTIONS
+  // ============================================
   const handleToggleNotifications = () => {
     setShowNotifications((prev) => !prev);
   };
 
-  // Mark all notifications as read
   const handleMarkAllRead = async () => {
     try {
       await requestWithRetry(() =>
-        requestJson(NOTIFICATION_ENDPOINTS.markAllRead, { method: "POST" })
+        requestJson("/api/notifications/mark-all-read", {
+          method: "POST",
+        })
       );
-      await fetchNotifications();
+
+      // Update local state
+      setNotifications((list) => list.map((n) => ({ ...n, is_read: true })));
+      setUnreadCount(0);
+
     } catch (err) {
-      console.error("Failed to mark all as read:", err);
+      console.error(err);
+      setError(getErrorMessage(err, "Failed to mark all as read"));
     }
   };
 
-  // Clear all notifications
-  const handleClearNotifications = async () => {
-    try {
-      await requestWithRetry(() =>
-        requestJson(NOTIFICATION_ENDPOINTS.clearAll, { method: "DELETE" })
-      );
-      await fetchNotifications();
-    } catch (err) {
-      console.error("Failed to clear notifications:", err);
-    }
+  const handleClearNotifications = () => {
+    // TODO: Add backend endpoint if you want to delete all
+    setNotifications([]);
+    setUnreadCount(0);
   };
 
-  // Mark single notification as read
   const handleNotificationClick = async (id) => {
     try {
       await requestWithRetry(() =>
-        requestJson(NOTIFICATION_ENDPOINTS.markRead(id), { method: "PATCH" })
+        requestJson(`/api/notifications/${id}/read`, {
+          method: "PATCH",
+        })
       );
-      await fetchNotifications();
+
+      // Update local state
+      setNotifications((list) =>
+        list.map((n) => (n.id === id ? { ...n, is_read: true } : n))
+      );
+      setUnreadCount((prev) => Math.max(0, prev - 1));
+
     } catch (err) {
-      console.error("Failed to mark notification as read:", err);
+      console.error(err);
     }
   };
 
-  // Delete single notification
   const handleRemoveNotification = async (id) => {
     try {
       await requestWithRetry(() =>
-        requestJson(NOTIFICATION_ENDPOINTS.delete(id), { method: "DELETE" })
+        requestJson(`/api/notifications/${id}`, {
+          method: "DELETE",
+        })
       );
-      await fetchNotifications();
+
+      // Update local state
+      const wasUnread = notifications.find((n) => n.id === id)?.is_read === false;
+      setNotifications((list) => list.filter((n) => n.id !== id));
+      if (wasUnread) {
+        setUnreadCount((prev) => Math.max(0, prev - 1));
+      }
+
     } catch (err) {
-      console.error("Failed to delete notification:", err);
+      console.error(err);
+      setError(getErrorMessage(err, "Failed to delete notification"));
     }
   };
 
@@ -262,22 +262,20 @@ export default function Notifications() {
             </p>
           </div>
 
-          {/* Bell Icon with Badge */}
+          {/* Bell + badge */}
           <div className="relative" ref={notificationMenuRef}>
             <button
               onClick={handleToggleNotifications}
               className="relative p-1.5 rounded-lg hover:bg-gray-100 transition"
-              aria-label="Toggle notifications"
             >
               <Bell size={20} className="text-[#0F172A]" />
               {unreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-[#EF4444] text-[10px] font-medium text-white px-1">
+                <span className="absolute -top-1 -right-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-[#EF4444] text-[10px] font-medium text-white">
                   {unreadCount}
                 </span>
               )}
             </button>
 
-            {/* Notifications Dropdown */}
             {showNotifications && (
               <div className="absolute right-0 mt-2 w-72 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
                 <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200">
@@ -310,38 +308,43 @@ export default function Notifications() {
                   </div>
                 </div>
 
-                <div className="max-h-96 overflow-y-auto">
-                  {notifications.length === 0 ? (
-                    <div className="px-4 py-3 text-xs text-gray-500 text-center">
-                      No notifications
-                    </div>
-                  ) : (
-                    notifications.map((n) => (
-                      <div
-                        key={n.id}
-                        onClick={() => handleNotificationClick(n.id)}
-                        className={`flex items-start justify-between gap-2 px-4 py-2 text-xs border-b last:border-b-0 cursor-pointer hover:bg-gray-50 ${
-                          n.is_read
-                            ? "text-gray-500"
-                            : "text-gray-900 font-medium bg-blue-50"
-                        }`}
-                      >
-                        <span className="flex-1">{n.message}</span>
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            handleRemoveNotification(n.id);
-                          }}
-                          className="text-gray-400 hover:text-red-500"
-                          title="Remove notification"
-                        >
-                          <X size={12} />
-                        </button>
+                {notifications.length === 0 ? (
+                  <div className="px-4 py-3 text-xs text-gray-500 text-center">
+                    No notifications
+                  </div>
+                ) : (
+                  notifications.map((n) => (
+                    <div
+                      key={n.id}
+                      onClick={() => handleNotificationClick(n.id)}
+                      className={`flex items-start justify-between gap-2 px-4 py-2 text-xs border-b last:border-b-0 cursor-pointer hover:bg-gray-50 ${
+                        n.is_read
+                          ? "text-gray-500"
+                          : "text-gray-900 font-medium bg-blue-50"
+                      }`}
+                    >
+                      <div className="flex-1">
+                        <div className="font-medium text-[11px] mb-0.5">
+                          {n.title}
+                        </div>
+                        <div className="text-[10px] text-gray-600">
+                          {n.message}
+                        </div>
                       </div>
-                    ))
-                  )}
-                </div>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleRemoveNotification(n.id);
+                        }}
+                        className="text-gray-400 hover:text-red-500"
+                        title="Remove notification"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ))
+                )}
               </div>
             )}
           </div>
@@ -349,15 +352,12 @@ export default function Notifications() {
         <div className="h-px bg-[#E2E8F0]" />
       </div>
 
-      {/* Loading State */}
       {loading && (
         <div className="mx-8 mt-4 text-sm text-gray-500 flex items-center gap-2">
           <span className="animate-spin h-4 w-4 border-2 border-gray-300 border-t-transparent rounded-full"></span>
-          Loading...
+          Loading notification settings...
         </div>
       )}
-      
-      {/* Error State */}
       {error && (
         <div className="mx-8 mt-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
           {error}
@@ -405,13 +405,12 @@ export default function Notifications() {
                 onClick={handleAddEmail}
                 className="rounded-md px-3 text-white hover:opacity-90"
                 style={{ backgroundColor: PRIMARY_BLUE }}
-                aria-label="Add email"
               >
                 <Plus size={18} />
               </button>
             </div>
 
-            {safeEmailList.map((item, index) => (
+            {emailList.map((item, index) => (
               <div
                 key={index}
                 className="flex items-center justify-between rounded-lg bg-[#F9FAFB] px-4 py-2.5 mb-2"
@@ -440,41 +439,41 @@ export default function Notifications() {
             <label className="flex items-center gap-3 py-1 text-sm text-[#0F172A]">
               <input
                 type="checkbox"
-                checked={triggerNewTender}
-                onChange={(e) => setTriggerNewTender(e.target.checked)}
+                checked={newTenderPublished}
+                onChange={(e) => setNewTenderPublished(e.target.checked)}
                 className="h-4 w-4"
                 style={{ accentColor: PRIMARY_BLUE }}
               />
               New tender published
             </label>
-            
+
             <label className="flex items-center gap-3 py-1 text-sm text-[#0F172A]">
               <input
                 type="checkbox"
-                checked={triggerKeywordMatch}
-                onChange={(e) => setTriggerKeywordMatch(e.target.checked)}
+                checked={keywordMatchFound}
+                onChange={(e) => setKeywordMatchFound(e.target.checked)}
                 className="h-4 w-4"
                 style={{ accentColor: PRIMARY_BLUE }}
               />
               Keyword match found
             </label>
-            
+
             <label className="flex items-center gap-3 py-1 text-sm text-[#0F172A]">
               <input
                 type="checkbox"
-                checked={triggerDeadlineApproaching}
-                onChange={(e) => setTriggerDeadlineApproaching(e.target.checked)}
+                checked={deadlineApproaching}
+                onChange={(e) => setDeadlineApproaching(e.target.checked)}
                 className="h-4 w-4"
                 style={{ accentColor: PRIMARY_BLUE }}
               />
               Deadline approaching (7 days)
             </label>
-            
+
             <label className="flex items-center gap-3 py-1 text-sm text-[#0F172A]">
               <input
                 type="checkbox"
-                checked={triggerSystemErrors}
-                onChange={(e) => setTriggerSystemErrors(e.target.checked)}
+                checked={systemErrors}
+                onChange={(e) => setSystemErrors(e.target.checked)}
                 className="h-4 w-4"
                 style={{ accentColor: PRIMARY_BLUE }}
               />
@@ -492,17 +491,18 @@ export default function Notifications() {
               <Toggle checked={silent} onChange={setSilent} />
             </Row>
 
-            <div className="mt-4 grid grid-cols-2 gap-4">
-              <FigmaTimeInput label="Start Time" value={startTime} onChange={setStartTime} />
-              <FigmaTimeInput label="End Time" value={endTime} onChange={setEndTime} />
-            </div>
+            {silent && (
+              <div className="mt-4 grid grid-cols-2 gap-4">
+                <FigmaTimeInput label="Start Time" value={startTime} onChange={setStartTime} />
+                <FigmaTimeInput label="End Time" value={endTime} onChange={setEndTime} />
+              </div>
+            )}
           </Card>
 
-          {/* Save Button */}
           <button
             onClick={handleSaveChanges}
             disabled={loading}
-            className="w-full rounded-md py-3 text-sm font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full rounded-md py-3 text-sm font-medium text-white disabled:opacity-50"
             style={{ backgroundColor: PRIMARY_BLUE }}
           >
             {loading ? "Saving..." : "✓ Save Changes"}
@@ -510,7 +510,7 @@ export default function Notifications() {
         </div>
       </div>
 
-      {/* Save Success Toast */}
+      {/* Save Notification Toast */}
       {showSaveNotification && (
         <div className="fixed bottom-8 right-8 bg-white rounded-lg shadow-lg p-4 flex items-start gap-3 min-w-[320px] z-50 border border-gray-200">
           <div className="flex h-8 w-8 items-center justify-center rounded-full bg-green-100">
@@ -528,7 +528,7 @@ export default function Notifications() {
   );
 }
 
-/* ---------- UI HELPER COMPONENTS ---------- */
+/* ---------- UI HELPERS ---------- */
 
 function Card({ children }) {
   return (
@@ -559,7 +559,6 @@ function Toggle({ checked, onChange }) {
       onClick={() => onChange(!checked)}
       className="relative h-6 w-11 rounded-full transition"
       style={{ backgroundColor: checked ? PRIMARY_BLUE : "#CBD5E1" }}
-      aria-label={`Toggle ${checked ? "on" : "off"}`}
     >
       <span
         className={`absolute left-1 top-1 h-4 w-4 rounded-full bg-white transition ${
