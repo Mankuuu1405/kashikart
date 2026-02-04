@@ -1,7 +1,5 @@
 import React from "react";
-// import { useMemo, useState } from "react";
 import { useMemo, useState, useEffect } from "react";
-// import axios from "axios";
 import { EmptyState } from "../components/States";
 import { getErrorMessage, requestJson, requestWithRetry } from "../utils/api";
 
@@ -17,99 +15,12 @@ import {
   Bell,
 } from "lucide-react";
 
-const VALID_STATUS = ["Success", "Warning", "Error", "Info"];
-const USE_MOCK_LOGS = true;
+const VALID_STATUS = ["SUCCESS", "WARNING", "ERROR", "INFO"];
 const SYSTEM_LOGS_ENDPOINTS = {
-  list: "/api/system-logs",
-  clear: "/api/system-logs",
+  list: "/api/fetch/logs",
+  clear: "/api/fetch/logs/clear",
+  status: "/api/fetch/status",
 };
-
-/* ================= MOCK DATA ================= */
-// NOTE: Backend connect ke baad ye mock data hata dena hai.
-// Ye sab remove hoga: BASE_LOGS, buildMockLogs(), INITIAL_LOGS
-const BASE_LOGS = [
-  {
-    date: "2026-01-01",
-    time: "08:30:00",
-    source: "SAM.gov",
-    status: "Success",
-    message: "Successfully fetched 24 new tenders",
-  },
-  {
-    date: "2026-01-02",
-    time: "08:30:00",
-    source: "DOT Portal",
-    status: "Success",
-    message: "Successfully fetched 24 new tenders",
-  },
-  {
-    date: "2026-01-03",
-    time: "12:30:00",
-    source: "VA Procurement",
-    status: "Success",
-    message: "Successfully fetched 24 new tenders",
-  },
-  {
-    date: "2026-01-04",
-    time: "08:30:00",
-    source: "EPA Portal",
-    status: "Warning",
-    message: "Fetched with warnings - some pages unavailable",
-  },
-  {
-    date: "2026-01-05",
-    time: "05:30:00",
-    source: "SAM.gov",
-    status: "Error",
-    message: "Failed to fetch - connection timeout",
-  },
-  {
-    date: "2026-01-03",
-    time: "08:30:00",
-    source: "DOT Portal",
-    status: "Info",
-    message: "Scheduled sync started",
-  },
-  {
-    date: "2026-01-01",
-    time: "23:30:00",
-    source: "VA Procurement",
-    status: "Info",
-    message: "System maintenance completed",
-  },
-];
-
-function buildMockLogs() {
-  const extraLogs = [];
-  const sources = ["SAM.gov", "DOT Portal", "VA Procurement", "EPA Portal"];
-  const statuses = ["Success", "Warning", "Error", "Info"];
-  const messages = {
-    Success: "Sync completed successfully",
-    Warning: "Partial sync - some items skipped",
-    Error: "Sync failed - retry scheduled",
-    Info: "Background sync running",
-  };
-
-  for (let i = 0; i < 60; i += 1) {
-    const day = String((i % 28) + 1).padStart(2, "0");
-    const hour = String((8 + (i % 12)) % 24).padStart(2, "0");
-    const minute = String((i * 7) % 60).padStart(2, "0");
-    const status = statuses[i % statuses.length];
-    const source = sources[i % sources.length];
-
-    extraLogs.push({
-      date: `2026-01-${day}`,
-      time: `${hour}:${minute}:00`,
-      source,
-      status,
-      message: messages[status],
-    });
-  }
-
-  return [...BASE_LOGS, ...extraLogs];
-}
-
-const INITIAL_LOGS = buildMockLogs();
 
 function isValidStatus(status) {
   return VALID_STATUS.includes(status);
@@ -143,16 +54,35 @@ function isValidLog(log) {
 
   if (typeof log.source !== "string" || log.source.trim() === "") return false;
 
-  // if (typeof log.date !== "string" || typeof log.time !== "string")
-  //   return false;
   if (!isValidDate(log.date)) return false;
 
   return true;
 }
 
+// Transform backend response to frontend format
+function transformBackendLog(backendLog) {
+  try {
+    // Backend format: { created_at, status, message, source: { name } }
+    // Frontend format: { date, time, status, message, source }
+    const createdAt = new Date(backendLog.created_at);
+    
+    return {
+      date: createdAt.toLocaleDateString("en-CA"), // YYYY-MM-DD format (Canada locale)
+      time: createdAt.toLocaleTimeString("en-GB", { hour12: false }), // HH:MM:SS format
+      status: backendLog.status,
+      message: backendLog.message || "No message",
+      source: backendLog.source?.name || "Unknown Source",
+    };
+  } catch (err) {
+    console.error("Error transforming log:", backendLog, err);
+    return null;
+  }
+}
+
 export default function SystemLogs() {
-  const [logs, setLogs] = useState(INITIAL_LOGS);
+  const [logs, setLogs] = useState([]);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All Status");
   const [selectedDate, setSelectedDate] = useState("");
   const [notifications, setNotifications] = useState([]);
@@ -162,22 +92,96 @@ export default function SystemLogs() {
   const pageSize = 25;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [totalCount, setTotalCount] = useState(0);
 
-  const fetchLogs = async () => {
-    if (USE_MOCK_LOGS) return;
+  // Backend stats (separate from client-side filtering)
+  const [backendStats, setBackendStats] = useState({
+    SUCCESS: 0,
+    WARNING: 0,
+    ERROR: 0,
+    INFO: 0,
+  });
+
+  // Debounce search input
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 400); // 400ms delay
+
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    if (currentPage !== 1) {
+      setCurrentPage(1);
+    }
+  }, [statusFilter, debouncedSearch, selectedDate]);
+
+  const fetchLogs = async (page = 1) => {
     try {
       setLoading(true);
       setError(null);
 
+      // Build query params
+      const params = new URLSearchParams({
+        page: page.toString(),
+        page_size: pageSize.toString(),
+      });
+
+      // Add filters if present - backend expects uppercase status
+      if (statusFilter !== "All Status") {
+        params.append("status", statusFilter.toUpperCase());
+      }
+
+      // Search filter
+      if (debouncedSearch.trim()) {
+        params.append("search", debouncedSearch.trim());
+      }
+
       const data = await requestWithRetry(() =>
-        requestJson(SYSTEM_LOGS_ENDPOINTS.list)
+        requestJson(`${SYSTEM_LOGS_ENDPOINTS.list}?${params.toString()}`)
       );
 
-      if (!Array.isArray(data)) {
+      // Normalize backend response - support multiple formats
+      let items = [];
+      let total = 0;
+
+      // Case 1: { items, total }
+      if (Array.isArray(data?.items)) {
+        items = data.items;
+        total = data.total || data.items.length;
+      } 
+      // Case 2: { data, count }
+      else if (Array.isArray(data?.data)) {
+        items = data.data;
+        total = data.count || data.data.length;
+      } 
+      // Case 3: plain array
+      else if (Array.isArray(data)) {
+        items = data;
+        total = data.length;
+      } 
+      else {
+        console.error("Unexpected logs response:", data);
         throw new Error("Invalid logs format from server");
       }
 
-      setLogs(data);
+      // Transform backend logs to frontend format
+      const transformedLogs = items
+        .map(transformBackendLog)
+        .filter(Boolean);
+
+      setLogs(transformedLogs);
+      setTotalCount(total);
+
+      // Update stats from backend response (backend uses uppercase)
+      setBackendStats({
+        SUCCESS: data.success_count || 0,
+        WARNING: data.warning_count || 0,
+        ERROR: data.error_count || 0,
+        INFO: data.info_count || 0,
+      });
     } catch (err) {
       console.error(err);
       setError(getErrorMessage(err, "Failed to load system logs"));
@@ -187,8 +191,8 @@ export default function SystemLogs() {
   };
 
   useEffect(() => {
-    fetchLogs();
-  }, []);
+    fetchLogs(currentPage);
+  }, [currentPage, statusFilter, debouncedSearch]);
 
   if (!Array.isArray(logs)) {
     return (
@@ -202,39 +206,20 @@ export default function SystemLogs() {
     try {
       if (!Array.isArray(logs)) return [];
 
-      const safeSearch = search.trim().toLowerCase();
-
-      const safeStatus =
-        statusFilter === "All Status" || isValidStatus(statusFilter)
-          ? statusFilter
-          : "All Status";
-
       return logs
-        .filter(isValidLog) //  MOST IMPORTANT
+        .filter(isValidLog)
         .filter((log) => {
-          // empty search → allow all
-          if (!safeSearch) return true;
-
-          const source = log.source?.toLowerCase() || "";
-          const message = log.message?.toLowerCase() || "";
-
-          return source.includes(safeSearch) || message.includes(safeSearch);
-        })
-        .filter((log) => {
-          const matchStatus =
-            safeStatus === "All Status" || log.status === safeStatus;
-
           const matchDate =
             !selectedDate ||
             getLocalDateOnly(log.date, log.time) === selectedDate;
 
-          return matchStatus && matchDate;
+          return matchDate;
         });
     } catch (err) {
       console.error("Error filtering logs:", err);
       return [];
     }
-  }, [logs, search, statusFilter, selectedDate]);
+  }, [logs, selectedDate]);
 
   const exportableLogs = useMemo(() => {
     if (!Array.isArray(filteredLogs)) return [];
@@ -272,29 +257,38 @@ export default function SystemLogs() {
     }
   };
 
-  const stats = useMemo(() => {
-    const validLogs = logs.filter(isValidLog);
-    const count = (s) => validLogs.filter((l) => l.status === s).length;
-    return {
-      Success: count("Success"),
-      Warning: count("Warning"),
-      Error: count("Error"),
-      Info: count("Info"),
-    };
-  }, [logs]);
+  // Use backend stats
+  const stats = backendStats;
 
-  const clearAll = () => setLogs([]);
-  // TODO BACKEND: clear all logs ke liye axios call yaha lagega
-  // const clearAll = async () => {
-  //   try {
-  //     // backend endpoint
-  //     await axios.delete("/api/system-logs");
-  //     setLogs([]);
-  //   } catch (err) {
-  //     console.error(err);
-  //     alert("Failed to clear logs");
-  //   }
-  // };
+  const clearAll = async () => {
+    if (!confirm("Are you sure you want to clear all logs older than 30 days?")) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Call backend to clear logs older than 30 days
+      await requestWithRetry(() =>
+        requestJson(SYSTEM_LOGS_ENDPOINTS.clear, {
+          method: "DELETE",
+        })
+      );
+
+      // Refresh logs after clearing
+      await fetchLogs(1);
+      setCurrentPage(1);
+      
+      alert("Old logs cleared successfully");
+    } catch (err) {
+      console.error(err);
+      setError(getErrorMessage(err, "Failed to clear logs"));
+      alert("Failed to clear logs");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     try {
@@ -302,14 +296,12 @@ export default function SystemLogs() {
         const existingIds = prev.map((n) => n.id);
 
         const newAlerts = logs
-
           .filter(
             (l) =>
               isValidLog(l) &&
-              (l.status === "Error" || l.status === "Warning") &&
+              (l.status === "ERROR" || l.status === "WARNING") &&
               !existingIds.includes(l.date + l.time + l.source)
           )
-
           .map((l) => ({
             id: l.date + l.time + l.source,
             ...l,
@@ -327,17 +319,16 @@ export default function SystemLogs() {
       console.error("Error setting notifications:", err);
     }
   }, [logs]);
+  
   const unreadCount = notifications.filter((n) => !n.read).length;
 
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [search, statusFilter, selectedDate]);
-
-  const totalPages = Math.max(1, Math.ceil(filteredLogs.length / pageSize));
+  // Use backend total for pagination, not filtered logs length
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
   const safePage = Math.min(currentPage, totalPages);
-  const startIndex = (safePage - 1) * pageSize;
-  const endIndex = startIndex + pageSize;
-  const paginatedLogs = filteredLogs.slice(startIndex, endIndex);
+  
+  // Backend already paginates - no need to slice again
+  // Apply only client-side filters (date)
+  const paginatedLogs = filteredLogs;
 
   const goToPage = (page) => {
     const next = Math.min(Math.max(page, 1), totalPages);
@@ -396,7 +387,6 @@ export default function SystemLogs() {
             Monitor system activity and troubleshoot issues
           </p>
         </div>
-        {/* <Bell className="text-gray-400 self-end sm:self-auto" /> */}
         <div
           className="relative cursor-pointer self-end sm:self-auto"
           onClick={() => {
@@ -436,10 +426,6 @@ export default function SystemLogs() {
                       <div className="text-xs text-gray-500">
                         {n.source} • {n.date}
                       </div>
-                      {/* <div className="text-sm text-gray-700 mt-1">
-                        {n.message}
-                      </div> */}
-
                       <div className="text-sm text-gray-700 mt-1">
                         {n.message || "No details available"}
                       </div>
@@ -484,31 +470,30 @@ export default function SystemLogs() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5 mb-8">
           <StatCard
             icon={<CheckCircle className="text-green-500" />}
-            value={stats.Success}
+            value={stats.SUCCESS}
             label="Success"
             bg="bg-green-50"
           />
           <StatCard
             icon={<AlertTriangle className="text-yellow-500" />}
-            value={stats.Warning}
+            value={stats.WARNING}
             label="Warnings"
             bg="bg-yellow-50"
           />
           <StatCard
             icon={<XCircle className="text-red-500" />}
-            value={stats.Error}
+            value={stats.ERROR}
             label="Errors"
             bg="bg-red-50"
           />
           <StatCard
             icon={<Info className="text-blue-500" />}
-            value={stats.Info}
+            value={stats.INFO}
             label="Info"
             bg="bg-blue-50"
           />
         </div>
         {/* ================= FILTER BAR ================= */}
-        {/* <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-6 py-5 mb-8"> */}
         <div className="mb-8">
           <div className="flex flex-col lg:flex-row lg:items-center gap-5">
             {/* SEARCH */}
@@ -524,7 +509,6 @@ export default function SystemLogs() {
 
             {/* STATUS FILTER */}
             <select
-              // className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 text-sm w-full lg:w-[180px]"
               className="bg-white hover:bg-gray-50 border border-gray-200 rounded-lg px-3 py-3 text-sm w-full lg:w-[180px]"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
@@ -554,7 +538,8 @@ export default function SystemLogs() {
             <div className="flex flex-col sm:flex-row gap-4 lg:ml-auto w-full lg:w-auto">
               <button
                 onClick={exportLogs}
-                className="flex items-center justify-center gap-2 bg-white border border-gray-300 rounded-lg px-5 py-3 text-sm shadow-sm hover:bg-gray-50 transition"
+                disabled={loading}
+                className="flex items-center justify-center gap-2 bg-white border border-gray-300 rounded-lg px-5 py-3 text-sm shadow-sm hover:bg-gray-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Download size={18} />
                 Export
@@ -562,7 +547,8 @@ export default function SystemLogs() {
 
               <button
                 onClick={clearAll}
-                className="flex items-center justify-center gap-2 bg-white border border-gray-300 rounded-lg px-5 py-3 text-sm text-red-600 shadow-sm hover:bg-red-50 transition"
+                disabled={loading}
+                className="flex items-center justify-center gap-2 bg-white border border-gray-300 rounded-lg px-5 py-3 text-sm text-red-600 shadow-sm hover:bg-red-50 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Trash2 size={18} />
                 Clear All
@@ -639,7 +625,6 @@ export default function SystemLogs() {
                         Message:&nbsp;
                       </span>
                       {log.message || "—"}
-                      {log.source || "Unknown"}
                     </td>
                   </tr>
                 ))
@@ -651,9 +636,9 @@ export default function SystemLogs() {
         {/* ===== PAGINATION ===== */}
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-4">
           <div className="text-sm text-gray-500 font-medium">
-            Showing {filteredLogs.length === 0 ? 0 : startIndex + 1}-
-            {Math.min(endIndex, filteredLogs.length)} of{" "}
-            {filteredLogs.length} results
+            Showing {totalCount === 0 ? 0 : (safePage - 1) * pageSize + 1}-
+            {Math.min(safePage * pageSize, totalCount)} of{" "}
+            {totalCount} results
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -701,10 +686,6 @@ export default function SystemLogs() {
             </button>
           </div>
         </div>
-        {/* ===== FOOTER TEXT ===== */}
-        {/* <div className="px-2 py-4 text-sm text-gray-500 font-medium">
-          Showing {filteredLogs.length} of {logs.length} logs
-        </div> */}
       </main>
       {toast && (
         <div className="fixed bottom-6 right-6 bg-white border shadow-lg rounded-lg px-4 py-3 flex gap-3 items-start z-50">
@@ -734,21 +715,28 @@ function StatCard({ icon, value, label, bg }) {
 
 function StatusBadge({ status }) {
   const map = {
-    Success: "bg-green-100 text-green-600",
-    Warning: "bg-yellow-100 text-yellow-600",
-    Error: "bg-red-100 text-red-600",
-    Info: "bg-blue-100 text-blue-600",
+    SUCCESS: "bg-green-100 text-green-600",
+    WARNING: "bg-yellow-100 text-yellow-600",
+    ERROR: "bg-red-100 text-red-600",
+    INFO: "bg-blue-100 text-blue-600",
+  };
+
+  const displayMap = {
+    SUCCESS: "Success",
+    WARNING: "Warning",
+    ERROR: "Error",
+    INFO: "Info",
   };
 
   return (
     <span
       className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium ${map[status]}`}
     >
-      {status === "Success" && <CheckCircle size={14} />}
-      {status === "Warning" && <AlertTriangle size={14} />}
-      {status === "Error" && <XCircle size={14} />}
-      {status === "Info" && <Info size={14} />}
-      {status}
+      {status === "SUCCESS" && <CheckCircle size={14} />}
+      {status === "WARNING" && <AlertTriangle size={14} />}
+      {status === "ERROR" && <XCircle size={14} />}
+      {status === "INFO" && <Info size={14} />}
+      {displayMap[status] || status}
     </span>
   );
 }

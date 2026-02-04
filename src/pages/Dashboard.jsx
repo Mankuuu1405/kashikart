@@ -21,9 +21,11 @@ const DASHBOARD_ENDPOINTS = {
   stats: "/api/dashboard/stats",
   recentTenders: "/api/dashboard/recent-tenders",
   sourceStatus: "/api/dashboard/source-status",
+
   tenderDetail: (id) => `/api/tenders/${id}`,
   tenderUpdate: (id) => `/api/tenders/${id}`,
 };
+
 
 const INITIAL_NOTIFICATIONS = [
   { id: 1, message: "New tender added from SAM.gov", isRead: false },
