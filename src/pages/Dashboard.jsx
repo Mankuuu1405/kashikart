@@ -21,11 +21,9 @@ const DASHBOARD_ENDPOINTS = {
   stats: "/api/dashboard/stats",
   recentTenders: "/api/dashboard/recent-tenders",
   sourceStatus: "/api/dashboard/source-status",
-
   tenderDetail: (id) => `/api/tenders/${id}`,
   tenderUpdate: (id) => `/api/tenders/${id}`,
 };
-
 
 const INITIAL_NOTIFICATIONS = [
   { id: 1, message: "New tender added from SAM.gov", isRead: false },
@@ -48,6 +46,12 @@ function safeStatus(status) {
   return VALID_TENDER_STATUS.includes(normalized) ? normalized : "viewed";
 }
 
+function safeKeywords(keywords) {
+  if (!keywords) return [];
+  if (Array.isArray(keywords)) return keywords;
+  return keywords.split(",").map((k) => k.trim()).filter(Boolean);
+}
+
 function isValidTender(tender) {
   if (!tender) return false;
   if (!VALID_TENDER_STATUS.includes(safeStatus(tender.status))) return false;
@@ -61,7 +65,6 @@ const Dashboard = () => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [selectedTender, setSelectedTender] = useState(null);
   const [activeActionsId, setActiveActionsId] = useState(null);
-
   const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS);
   const [tenderList, setTenderList] = useState([]);
   const [topKeywords, setTopKeywords] = useState([]);
@@ -82,20 +85,17 @@ const Dashboard = () => {
   const [error, setError] = useState(null);
   const notificationMenuRef = useRef(null);
 
-  // Fetch dashboard data
   const fetchDashboard = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Fetch all dashboard data in parallel
       const [statsData, tendersData, sourcesData] = await Promise.all([
         requestWithRetry(() => requestJson(DASHBOARD_ENDPOINTS.stats)),
         requestWithRetry(() => requestJson(`${DASHBOARD_ENDPOINTS.recentTenders}?limit=50`)),
         requestWithRetry(() => requestJson(DASHBOARD_ENDPOINTS.sourceStatus)),
       ]);
 
-      // Update stats
       if (statsData) {
         setStats({
           newTendersToday: statsData.new_tenders_today || 0,
@@ -109,7 +109,6 @@ const Dashboard = () => {
           trendKeywords: statsData.keyword_matches_change || 0,
         });
 
-        // Update top keywords
         if (statsData.top_keywords && Array.isArray(statsData.top_keywords)) {
           setTopKeywords(
             statsData.top_keywords.map((kw, index) => ({
@@ -122,7 +121,6 @@ const Dashboard = () => {
         }
       }
 
-      // Update tenders
       if (Array.isArray(tendersData)) {
         const mappedTenders = tendersData.map((tender) => ({
           id: tender.id,
@@ -142,9 +140,7 @@ const Dashboard = () => {
             ? `${tender.days_until_deadline} days left`
             : "—",
           status: safeStatus(tender.status),
-          keywords: tender.matched_keywords
-            ? tender.matched_keywords.split(",").map((k) => k.trim())
-            : [],
+          keywords: safeKeywords(tender.matched_keywords),
           attachments: tender.attachments || [],
           description: tender.description || "No description available",
           source_url: tender.source_url,
@@ -152,7 +148,6 @@ const Dashboard = () => {
         setTenderList(mappedTenders);
       }
 
-      // Update sources
       if (Array.isArray(sourcesData)) {
         const mappedSources = sourcesData.map((source) => ({
           name: source.name,
@@ -168,7 +163,6 @@ const Dashboard = () => {
         setSources(mappedSources);
       }
 
-      // Update sync info
       const now = new Date();
       setLastSyncAt(
         now.toLocaleString("en-US", {
@@ -193,12 +187,10 @@ const Dashboard = () => {
   }, []);
 
   const unreadCount = notifications.filter((n) => !n.isRead).length;
-
   const normalizedSearch = searchQuery.trim().toLowerCase();
 
   const filteredTenders = useMemo(() => {
     if (!Array.isArray(tenderList)) return [];
-
     const validTenders = tenderList.filter(isValidTender);
     if (!normalizedSearch) return validTenders;
     if (!isValidSearch(searchQuery)) return validTenders;
@@ -390,7 +382,6 @@ const Dashboard = () => {
 
   const updateTenderStatus = async (tenderId, status) => {
     try {
-      // Update locally first
       setTenderList((prev) =>
         prev.map((tender) =>
           tender.id === tenderId ? { ...tender, status } : tender
@@ -400,21 +391,18 @@ const Dashboard = () => {
         prev?.id === tenderId ? { ...prev, status } : prev
       );
 
-      // Update on backend
       await requestJson(DASHBOARD_ENDPOINTS.tenderUpdate(tenderId), {
         method: "PATCH",
         body: JSON.stringify({ status }),
       });
     } catch (err) {
       console.error("Failed to update tender status:", err);
-      // Revert on error
       fetchDashboard();
     }
   };
 
   const handleViewTender = async (tender) => {
     try {
-      // Fetch full tender details
       const tenderData = await requestWithRetry(() =>
         requestJson(DASHBOARD_ENDPOINTS.tenderDetail(tender.id))
       );
@@ -437,9 +425,7 @@ const Dashboard = () => {
           ? `${tenderData.days_until_deadline} days left`
           : "—",
         status: safeStatus(tenderData.status),
-        keywords: tenderData.matched_keywords
-          ? tenderData.matched_keywords.split(",").map((k) => k.trim())
-          : [],
+        keywords: safeKeywords(tenderData.matched_keywords),
         attachments: tenderData.attachments || [],
         description: tenderData.description || "No description available",
         source_url: tenderData.source_url,
@@ -447,7 +433,6 @@ const Dashboard = () => {
 
       setSelectedTender(mappedTender);
 
-      // Auto-update status to viewed if it was new
       if (tenderData.status === "new") {
         updateTenderStatus(tender.id, "viewed");
       }
@@ -489,7 +474,6 @@ const Dashboard = () => {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="overflow-y-auto">
-        {/* Header */}
         <div className="bg-white border-b border-gray-200 px-6 py-3">
           <div className="flex items-center justify-between">
             <div>
@@ -538,7 +522,6 @@ const Dashboard = () => {
                   className="relative p-1.5 border border-gray-300 rounded-lg bg-white hover:bg-gray-50"
                 >
                   <Bell size={18} className="text-gray-600" />
-
                   {unreadCount > 0 && (
                     <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] rounded-full px-1">
                       {unreadCount}
@@ -615,7 +598,6 @@ const Dashboard = () => {
           </div>
         </div>
 
-        {/* Status Banner */}
         <div className="mx-6 mt-4 bg-green-100 border border-green-300 rounded-lg p-4 flex items-center justify-between">
           <div className="flex items-center gap-3 text-green-900">
             <div className="w-1.5 h-1.5 bg-green-500 rounded-full"></div>
@@ -638,7 +620,6 @@ const Dashboard = () => {
           </div>
         )}
 
-        {/* Stats Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 px-4 md:px-6 mt-6">
           <div className="bg-white border border-gray-200 rounded-lg p-6 flex flex-col justify-center shadow-lg">
             <div className="flex items-start justify-between">
@@ -705,18 +686,14 @@ const Dashboard = () => {
           </div>
         </div>
 
-        {/* Main Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 px-4 md:px-6 mt-6">
-          {/* Recent Tenders */}
           <div className="lg:col-span-8 bg-white border border-gray-200 rounded-xl p-4">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-gray-900">
                 Recent Tenders
               </h3>
-
               <span className="text-xs bg-blue-50 text-blue-600 px-3 py-1 rounded-full font-medium">
-                {filteredTenders.filter((t) => t.status === "new").length} new
-                today
+                {filteredTenders.filter((t) => t.status === "new").length} new today
               </span>
             </div>
 
@@ -725,36 +702,19 @@ const Dashboard = () => {
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 text-gray-500 text-xs">
                     <tr>
-                      <th className="px-5 py-4 text-left font-semibold uppercase">
-                        Tender
-                      </th>
-                      <th className="px-5 py-3 text-left font-semibold uppercase">
-                        Agency
-                      </th>
-                      <th className="px-5 py-3 text-left font-semibold uppercase">
-                        Sources
-                      </th>
-                      <th className="px-5 py-3 text-left font-semibold uppercase">
-                        Deadline
-                      </th>
-                      <th className="px-5 py-3 text-left font-semibold uppercase">
-                        Status
-                      </th>
-                      <th className="px-5 py-3 text-left font-semibold uppercase">
-                        Keywords
-                      </th>
-                      <th className="px-5 py-3 text-left font-semibold uppercase">
-                        Actions
-                      </th>
+                      <th className="px-5 py-4 text-left font-semibold uppercase">Tender</th>
+                      <th className="px-5 py-3 text-left font-semibold uppercase">Agency</th>
+                      <th className="px-5 py-3 text-left font-semibold uppercase">Sources</th>
+                      <th className="px-5 py-3 text-left font-semibold uppercase">Deadline</th>
+                      <th className="px-5 py-3 text-left font-semibold uppercase">Status</th>
+                      <th className="px-5 py-3 text-left font-semibold uppercase">Keywords</th>
+                      <th className="px-5 py-3 text-left font-semibold uppercase">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {paginatedTenders.map((tender) => (
-                      <tr
-                        key={tender.id}
-                        className="border-b border-gray-200 hover:bg-gray-50"
-                      >
-                        <td className="px-3 py-10">
+                      <tr key={tender.id} className="border-b border-gray-200 hover:bg-gray-50">
+                        <td className="px-3 py-4">
                           <div className="font-medium text-gray-900 text-sm truncate max-w-xs">
                             {tender.title}
                           </div>
@@ -763,44 +723,25 @@ const Dashboard = () => {
                           </div>
                         </td>
                         <td className="px-3 py-2">
-                          <div className="text-gray-900 text-xs">
-                            {tender.agency}
-                          </div>
-                          <div className="text-xs text-gray-500 mt-0.5">
-                            {tender.location}
-                          </div>
+                          <div className="text-gray-900 text-xs">{tender.agency}</div>
+                          <div className="text-xs text-gray-500 mt-0.5">{tender.location}</div>
                         </td>
-                        <td className="px-3 py-2 font-semibold text-xs">
-                          {tender.source}
-                        </td>
+                        <td className="px-3 py-2 font-semibold text-xs">{tender.source}</td>
                         <td className="px-3 py-2">
-                          <div className="font-medium text-xs">
-                            {tender.deadline}
-                          </div>
-                          <div
-                            className={`text-xs mt-0.5 ${getDaysLeftClass(
-                              tender.daysLeft
-                            )}`}
-                          >
+                          <div className="font-medium text-xs">{tender.deadline}</div>
+                          <div className={`text-xs mt-0.5 ${getDaysLeftClass(tender.daysLeft)}`}>
                             {tender.daysLeft}
                           </div>
                         </td>
                         <td className="px-3 py-2">
-                          <span
-                            className={`inline-block px-2 py-0.5 rounded text-xs font-medium uppercase ${getStatusBadgeClasses(
-                              tender.status
-                            )}`}
-                          >
+                          <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium uppercase ${getStatusBadgeClasses(tender.status)}`}>
                             {tender.status}
                           </span>
                         </td>
                         <td className="px-3 py-2">
                           <div className="flex flex-wrap gap-2">
                             {safeArray(tender.keywords).slice(0, 2).map((keyword, idx) => (
-                              <span
-                                key={`${tender.id}-kw-${idx}`}
-                                className="bg-gray-100 px-3 py-1 rounded-full text-xs"
-                              >
+                              <span key={`${tender.id}-kw-${idx}`} className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-xs">
                                 {keyword}
                               </span>
                             ))}
@@ -815,20 +756,19 @@ const Dashboard = () => {
                           <div className="relative flex items-center justify-center gap-3 text-gray-500">
                             <Eye
                               size={16}
-                              className="hover:text-gray-900 cursor-pointer"
+                              className="hover:text-blue-600 cursor-pointer transition"
                               onClick={() => handleViewTender(tender)}
                             />
-
                             <Bookmark
                               size={16}
-                              className={`hover:text-gray-900 cursor-pointer ${
+                              className={`hover:text-blue-600 cursor-pointer transition ${
                                 tender.status === "saved" ? "fill-current text-blue-600" : ""
                               }`}
                               onClick={() => handleToggleSave(tender)}
                             />
                             <MoreHorizontal
                               size={16}
-                              className="hover:text-gray-900 cursor-pointer"
+                              className="hover:text-blue-600 cursor-pointer transition"
                               onClick={() =>
                                 setActiveActionsId((prev) =>
                                   prev === tender.id ? null : tender.id
@@ -872,11 +812,14 @@ const Dashboard = () => {
                     ))}
                     {paginatedTenders.length === 0 && (
                       <tr>
-                        <td
-                          colSpan={7}
-                          className="px-4 py-6 text-center text-sm text-gray-500"
-                        >
-                          No tenders found
+                        <td colSpan={7} className="px-4 py-8 text-center">
+                          <div className="text-gray-500">
+                            <FileText className="mx-auto h-12 w-12 text-gray-400 mb-3" />
+                            <p className="font-medium text-lg">No tenders found</p>
+                            <p className="text-sm mt-1">
+                              {searchQuery ? "Try adjusting your search" : "No tenders available"}
+                            </p>
+                          </div>
                         </td>
                       </tr>
                     )}
@@ -911,7 +854,6 @@ const Dashboard = () => {
                         </span>
                       );
                     }
-
                     const page = item.value;
                     return (
                       <button
@@ -939,12 +881,9 @@ const Dashboard = () => {
             </div>
           </div>
 
-          {/* Top Keywords */}
           <div className="lg:col-span-4 bg-white border border-gray-200 rounded-xl">
             <div className="flex items-center justify-between px-5 py-4 border-b">
-              <h3 className="text-lg font-semibold text-gray-900">
-                Top Keywords
-              </h3>
+              <h3 className="text-lg font-semibold text-gray-900">Top Keywords</h3>
               <TrendingUp size={16} className="text-gray-400" />
             </div>
             <div className="p-4 space-y-10">
@@ -954,10 +893,7 @@ const Dashboard = () => {
                 </div>
               ) : (
                 topKeywords.map((keyword) => (
-                  <div
-                    key={keyword.rank}
-                    className="flex items-center justify-between mb-3"
-                  >
+                  <div key={keyword.rank} className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
                       <span className="text-gray-500 font-medium text-xs">
                         {keyword.rank}.
@@ -966,11 +902,7 @@ const Dashboard = () => {
                         {keyword.name}
                       </span>
                     </div>
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-xs font-medium ${getKeywordBadgeClasses(
-                        keyword.color
-                      )}`}
-                    >
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getKeywordBadgeClasses(keyword.color)}`}>
                       {keyword.matches} matches
                     </span>
                   </div>
@@ -980,15 +912,11 @@ const Dashboard = () => {
           </div>
         </div>
 
-        {/* Source Status Overview */}
         <div className="px-6 pb-6 mt-4">
           <div className="bg-white border border-gray-200 rounded-lg">
             <div className="px-4 py-3 border-b border-gray-200">
-              <h3 className="text-base font-semibold">
-                Source Status Overview
-              </h3>
+              <h3 className="text-base font-semibold">Source Status Overview</h3>
             </div>
-
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 p-4">
               {sources.length === 0 ? (
                 <div className="col-span-full text-center text-sm text-gray-500 py-4">
@@ -996,30 +924,15 @@ const Dashboard = () => {
                 </div>
               ) : (
                 sources.map((source, idx) => (
-                  <div
-                    key={`${source.name}-${idx}`}
-                    className="border border-gray-200 rounded-lg p-3"
-                  >
+                  <div key={`${source.name}-${idx}`} className="border border-gray-200 rounded-lg p-3">
                     <div className="flex items-center gap-1.5 mb-1.5">
-                      <div
-                        className={`w-1.5 h-1.5 rounded-full ${getSourceDotColor(
-                          source.color
-                        )}`}
-                      ></div>
-                      <span
-                        className={`text-xs font-semibold uppercase ${getSourceStatusColor(
-                          source.color
-                        )}`}
-                      >
+                      <div className={`w-1.5 h-1.5 rounded-full ${getSourceDotColor(source.color)}`}></div>
+                      <span className={`text-xs font-semibold uppercase ${getSourceStatusColor(source.color)}`}>
                         {source.status}
                       </span>
                     </div>
-                    <div className="font-medium text-gray-900 text-xs">
-                      {source.name}
-                    </div>
-                    <div className="text-xs text-gray-500 mt-0.5">
-                      {source.count}
-                    </div>
+                    <div className="font-medium text-gray-900 text-xs">{source.name}</div>
+                    <div className="text-xs text-gray-500 mt-0.5">{source.count}</div>
                   </div>
                 ))
               )}
@@ -1028,31 +941,20 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* ================= OVERLAY ================= */}
       {selectedTender && (
         <div className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm"></div>
       )}
 
       {selectedTender && (
         <div className="fixed top-0 right-0 h-full w-full sm:w-[420px] bg-white z-50 shadow-2xl transition-transform duration-300">
-          {/* Header */}
           <div className="flex items-start justify-between p-5 border-b">
             <div>
-              <span
-                className={`text-xs px-2 py-0.5 rounded-full uppercase ${getStatusBadgeClasses(
-                  selectedTender.status
-                )}`}
-              >
+              <span className={`text-xs px-2 py-0.5 rounded-full uppercase ${getStatusBadgeClasses(selectedTender.status)}`}>
                 {selectedTender.status}
               </span>
-              <h2 className="text-lg font-semibold mt-2">
-                {selectedTender.title}
-              </h2>
-              <p className="text-xs text-gray-500 mt-1">
-                {selectedTender.code}
-              </p>
+              <h2 className="text-lg font-semibold mt-2">{selectedTender.title}</h2>
+              <p className="text-xs text-gray-500 mt-1">{selectedTender.code}</p>
             </div>
-
             <button
               onClick={() => setSelectedTender(null)}
               className="text-gray-400 hover:text-gray-700 text-xl"
@@ -1061,7 +963,6 @@ const Dashboard = () => {
             </button>
           </div>
 
-          {/* Body */}
           <div className="p-5 space-y-5 text-sm overflow-y-auto h-[calc(100%-100px)]">
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -1072,7 +973,6 @@ const Dashboard = () => {
                 <p className="text-xs text-gray-500">Location</p>
                 <p className="font-medium">{selectedTender.location}</p>
               </div>
-
               <div>
                 <p className="text-xs text-gray-500">Source</p>
                 <p className="font-medium">{selectedTender.source}</p>
@@ -1084,7 +984,6 @@ const Dashboard = () => {
               </div>
             </div>
 
-            {/* Keywords */}
             {selectedTender.keywords.length > 0 && (
               <div>
                 <p className="text-xs text-gray-500 mb-2">Keyword Matches</p>
@@ -1101,7 +1000,6 @@ const Dashboard = () => {
               </div>
             )}
 
-            {/* Description */}
             <div>
               <p className="text-xs text-gray-500 mb-1">Description</p>
               <p className="text-gray-700 text-sm leading-relaxed">
@@ -1109,7 +1007,6 @@ const Dashboard = () => {
               </p>
             </div>
 
-            {/* Attachments */}
             <div>
               <p className="text-xs text-gray-500 mb-2">Attachments</p>
               <div className="space-y-2">
@@ -1133,7 +1030,6 @@ const Dashboard = () => {
               </div>
             </div>
 
-            {/* Button */}
             {selectedTender.source_url && (
               <a
                 href={selectedTender.source_url}

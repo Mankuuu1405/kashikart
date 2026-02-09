@@ -12,12 +12,13 @@ import {
   X,
   Trash2,
   AlertCircle,
+  Upload,
+  FileSpreadsheet,
+  Download,
 } from "lucide-react";
 
 // API Configuration
-const API_BASE_URL =
-  import.meta.env.VITE_API_URL || "http://localhost:8000";
-
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 const SOURCE_ENDPOINTS = {
   list: "/api/sources/",
@@ -29,22 +30,37 @@ const SOURCE_ENDPOINTS = {
   refresh: (id) => `/api/sources/${id}/refresh`,
 };
 
+const EXCEL_ENDPOINTS = {
+  register: "/api/excel_control/excel/register-file",
+  list: "/api/excel_control/excel/files",
+  all: "/api/excel_control/excel/all",
+  importStatus: "/api/excel_control/excel/import-status",
+  manualImport: "/api/excel_control/excel/import-to-tenders",
+};
+
 // Helper to get auth token
-const getAuthToken = () => localStorage.getItem('access_token');
+const getAuthToken = () => localStorage.getItem("access_token");
 
 // Helper for API requests
 const requestJson = async (url, options = {}) => {
+  console.log(`🌐 API Request: ${url}`);
+  
   const response = await fetch(`${API_BASE_URL}${url}`, {
     ...options,
     headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${getAuthToken()}`,
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${getAuthToken()}`,
       ...options.headers,
     },
   });
 
+  console.log(`📡 Response status: ${response.status}`);
+
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'An error occurred' }));
+    const error = await response
+      .json()
+      .catch(() => ({ detail: "An error occurred" }));
+    console.error(`❌ API Error:`, error);
     throw new Error(error.detail || `HTTP error! status: ${response.status}`);
   }
 
@@ -53,56 +69,139 @@ const requestJson = async (url, options = {}) => {
     return null;
   }
 
-  return response.json();
+  const data = await response.json();
+  console.log(`✅ Response data:`, data);
+  return data;
 };
 
 export default function Sources() {
   const [sources, setSources] = useState([]);
+  const [excelFiles, setExcelFiles] = useState([]);
+  const [showExcelSources, setShowExcelSources] = useState(true);
   const [stats, setStats] = useState({
     total: 0,
     active: 0,
     disabled: 0,
     errors: 0,
   });
+  
+  const [importStatus, setImportStatus] = useState(null);
+  
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isExcelModalOpen, setIsExcelModalOpen] = useState(false);
+  const [isViewExcelFilesModalOpen, setIsViewExcelFilesModalOpen] = useState(false);
   const [editingSource, setEditingSource] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [showRefreshToast, setShowRefreshToast] = useState(false);
   const [refreshingSource, setRefreshingSource] = useState("");
   const [loading, setLoading] = useState(false);
+  const [loadingExcelFiles, setLoadingExcelFiles] = useState(false);
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
-
+  const [excelPath, setExcelPath] = useState("");
 
   const [formData, setFormData] = useState({
     name: "",
     url: "",
     loginRequired: false,
     password: "",
-    excelPath: "",
   });
 
-  // Fetch sources on component mount and when search changes
   useEffect(() => {
-  setCurrentPage(1);
-}, [searchQuery]);
+    setCurrentPage(1);
+  }, [searchQuery]);
 
-useEffect(() => {
-  fetchSources();
-  fetchStats();
-}, [currentPage]);
+  useEffect(() => {
+    fetchSources();
+    fetchStats();
+    fetchExcelFiles();
+    fetchImportStatus();
+  }, [currentPage]);
+
+  const fetchImportStatus = async () => {
+    try {
+      const status = await requestJson(EXCEL_ENDPOINTS.importStatus);
+      setImportStatus(status);
+    } catch (err) {
+      console.error('Error fetching import status:', err);
+    }
+  };
+
+  const pollImportStatus = () => {
+    let pollCount = 0;
+    const maxPolls = 10;
+    
+    const interval = setInterval(async () => {
+      pollCount++;
+      
+      try {
+        const status = await requestJson(EXCEL_ENDPOINTS.importStatus);
+        
+        console.log('📊 Import status:', status);
+        setImportStatus(status);
+        
+        if (status.imported_tenders > 0 || pollCount >= maxPolls) {
+          clearInterval(interval);
+          
+          await fetchSources();
+          await fetchStats();
+          await fetchExcelFiles();
+          
+          if (status.imported_tenders > 0) {
+            setSuccessMessage(
+              `✅ Import complete! ${status.imported_tenders} tenders and ${status.excel_sources} sources created.`
+            );
+            setTimeout(() => setSuccessMessage(""), 5000);
+          }
+        }
+      } catch (err) {
+        console.error('Error polling import status:', err);
+        clearInterval(interval);
+      }
+    }, 2000);
+  };
+
+  const handleManualImport = async () => {
+    if (!window.confirm('Manually trigger import of Excel data to tenders and sources?')) {
+      return;
+    }
+    
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const result = await requestJson(EXCEL_ENDPOINTS.manualImport, {
+        method: 'POST'
+      });
+      
+      if (result.status === 'success') {
+        setSuccessMessage(
+          `✅ Import complete! ${result.tenders.imported} tenders and ${result.sources.created} sources created.`
+        );
+        
+        await fetchSources();
+        await fetchStats();
+        await fetchImportStatus();
+      } else {
+        setError(result.message || 'Import failed');
+      }
+    } catch (err) {
+      setError(err.message || 'Failed to trigger import');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const fetchSources = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Build query params with pagination
       const params = new URLSearchParams({
         page: currentPage.toString(),
-        size: "50", // Get more items per page
+        size: "50",
       });
 
       if (searchQuery.trim()) {
@@ -111,7 +210,6 @@ useEffect(() => {
 
       const data = await requestJson(`/api/sources/?${params.toString()}`);
 
-      // Transform backend data to match frontend format
       const transformedSources = data.items.map((source) => ({
         id: source.id,
         name: source.name,
@@ -119,15 +217,17 @@ useEffect(() => {
         login: source.login_required ? "Required" : "Public",
         status: source.status,
         lastFetch: source.last_fetch_at
-  ? new Date(source.last_fetch_at).toLocaleString("en-US", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    }).replace(",", "")
-  : "Never",
+          ? new Date(source.last_fetch_at)
+              .toLocaleString("en-US", {
+                year: "numeric",
+                month: "2-digit",
+                day: "2-digit",
+                hour: "2-digit",
+                minute: "2-digit",
+                hour12: false,
+              })
+              .replace(",", "")
+          : "Never",
         tenders: source.tender_count || 0,
         isPublic: !source.login_required,
         isEnabled: source.is_active,
@@ -157,24 +257,69 @@ useEffect(() => {
     }
   };
 
+  const fetchExcelFiles = async () => {
+    try {
+      setLoadingExcelFiles(true);
+      setError(null);
+      
+      console.log("🔍 Fetching Excel data...");
+      const data = await requestJson(`${EXCEL_ENDPOINTS.all}?page=1&limit=1000`);
+      
+      console.log("📊 Received Excel data:", data);
+      
+      if (!data || !Array.isArray(data.data)) {
+        console.warn("⚠️ Expected data.data array but got:", typeof data);
+        setExcelFiles([]);
+        return;
+      }
+      
+      const transformedData = data.data
+        .filter(row => {
+          const url = row.row_data?.['Web Source Data Link (Links of Tender Release Sources)'];
+          const source = row.row_data?.Source;
+          return url && url !== 'Florida State' && url !== 'Washington State & Oregon State' && source;
+        })
+        .map(row => ({
+          id: row.id,
+          row_index: row.row_index,
+          source: row.row_data?.Source || 'N/A',
+          url: row.row_data?.['Web Source Data Link (Links of Tender Release Sources)'] || '',
+          user: row.row_data?.User || '-',
+          login_required: row.row_data?.['User Login Required?'] || 'No',
+          password: row.row_data?.Password || '-',
+          remarks: row.row_data?.Remarks || '',
+          created_at: row.created_at
+        }));
+      
+      setExcelFiles(transformedData);
+      console.log(`✅ Successfully loaded ${transformedData.length} Excel rows`);
+    } catch (err) {
+      console.error("❌ Error fetching excel data:", err);
+      setError(err.message || "Failed to fetch excel data");
+      setExcelFiles([]);
+    } finally {
+      setLoadingExcelFiles(false);
+    }
+  };
+
   const getStatusColor = (status) => {
-  switch (status?.toUpperCase()) {
-    case "ACTIVE":
-      return "bg-green-100 text-green-700";
-    case "ERROR":
-      return "bg-red-100 text-red-700";
-    case "DISABLED":
-      return "bg-gray-100 text-gray-700";
-    default:
-      return "bg-gray-100 text-gray-700";
-  }
-};
+    switch (status?.toUpperCase()) {
+      case "ACTIVE":
+        return "bg-green-100 text-green-700";
+      case "ERROR":
+        return "bg-red-100 text-red-700";
+      case "DISABLED":
+        return "bg-gray-100 text-gray-700";
+      default:
+        return "bg-gray-100 text-gray-700";
+    }
+  };
 
   const handleInputChange = (e) => {
-    const { name, value } = e.target;
+    const { name, value, type, checked } = e.target;
     setFormData((prev) => ({
       ...prev,
-      [name]: value,
+      [name]: type === 'checkbox' ? checked : value,
     }));
   };
 
@@ -189,7 +334,6 @@ useEffect(() => {
         url: formData.url,
         login_required: formData.loginRequired,
         password: formData.password || undefined,
-        excel_path: formData.excelPath || undefined,
       };
 
       await requestJson("/api/sources/", {
@@ -206,14 +350,68 @@ useEffect(() => {
         url: "",
         loginRequired: false,
         password: "",
-        excelPath: "",
       });
 
-      // Refresh the list
       await fetchSources();
       await fetchStats();
     } catch (err) {
       setError(err.message || "Failed to create source");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleExcelUploadSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+
+    try {
+      const cleanPath = excelPath.replace(/\\/g, "/").trim();
+      
+      console.log("📤 Registering Excel path with auto-import:", cleanPath);
+      
+      const response = await requestJson(
+        `${EXCEL_ENDPOINTS.register}?path=${encodeURIComponent(cleanPath)}&auto_import=true`,
+        {
+          method: "POST",
+        }
+      );
+
+      console.log("📥 Registration response:", response);
+
+      if (response.status === "already exists") {
+        setSuccessMessage(
+          `Excel path already registered (ID: ${response.id})`
+        );
+      } else if (response.status === "registered") {
+        if (response.auto_import_triggered) {
+          setSuccessMessage(
+            `✅ File registered! Import started in background. Tenders and sources will appear shortly.`
+          );
+          
+          pollImportStatus();
+        } else {
+          setSuccessMessage(
+            `Excel path registered successfully (ID: ${response.id})`
+          );
+        }
+      }
+
+      setTimeout(() => setSuccessMessage(""), 5000);
+
+      setIsExcelModalOpen(false);
+      setExcelPath("");
+      
+      setTimeout(async () => {
+        await fetchSources();
+        await fetchStats();
+        await fetchExcelFiles();
+        await fetchImportStatus();
+      }, 2000);
+      
+    } catch (err) {
+      setError(err.message || "Failed to register Excel path");
     } finally {
       setLoading(false);
     }
@@ -226,9 +424,24 @@ useEffect(() => {
       url: "",
       loginRequired: false,
       password: "",
-      excelPath: "",
     });
     setError(null);
+  };
+
+  const handleCloseExcelModal = () => {
+    setIsExcelModalOpen(false);
+    setExcelPath("");
+    setError(null);
+  };
+
+  const handleOpenViewExcelFiles = async () => {
+    console.log("👁️ Opening Excel files modal...");
+    setIsViewExcelFilesModalOpen(true);
+    await fetchExcelFiles();
+  };
+
+  const handleCloseViewExcelFiles = () => {
+    setIsViewExcelFilesModalOpen(false);
   };
 
   const handleToggle = async (id) => {
@@ -246,19 +459,16 @@ useEffect(() => {
   const handleRefresh = async (id) => {
     const source = sources.find((s) => s.id === id);
 
-if (!source) return;
+    if (!source) return;
 
-setRefreshingSource(source.name);
-
+    setRefreshingSource(source.name);
     setShowRefreshToast(true);
 
     try {
-      // Call the actual refresh endpoint
       await requestJson(`/api/sources/${id}/refresh`, {
         method: "POST",
       });
 
-      // Wait a bit then refresh the list
       setTimeout(async () => {
         await fetchSources();
         setShowRefreshToast(false);
@@ -319,10 +529,10 @@ setRefreshingSource(source.name);
   };
 
   const handleEditInputChange = (e) => {
-    const { name, value } = e.target;
+    const { name, value, type, checked } = e.target;
     setEditingSource((prev) => ({
       ...prev,
-      [name]: value,
+      [name]: type === 'checkbox' ? checked : value,
     }));
   };
 
@@ -353,6 +563,104 @@ setRefreshingSource(source.name);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleImportFromExcel = async (excelRow) => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const newSourceData = {
+        name: excelRow.source,
+        url: excelRow.url,
+        login_required: excelRow.login_required === 'Yes',
+        password: excelRow.password !== '-' ? excelRow.password : undefined,
+      };
+
+      await requestJson("/api/sources/", {
+        method: "POST",
+        body: JSON.stringify(newSourceData),
+      });
+
+      setSuccessMessage(`Source "${excelRow.source}" imported successfully!`);
+      setTimeout(() => setSuccessMessage(""), 3000);
+
+      await fetchSources();
+      await fetchStats();
+    } catch (err) {
+      setError(err.message || `Failed to import source "${excelRow.source}"`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleBulkImportFromExcel = async () => {
+    if (!window.confirm(`Are you sure you want to import all ${excelFiles.length} sources from Excel?`)) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+      
+      let successCount = 0;
+      let errorCount = 0;
+
+      for (const excelRow of excelFiles) {
+        try {
+          const newSourceData = {
+            name: excelRow.source,
+            url: excelRow.url,
+            login_required: excelRow.login_required === 'Yes',
+            password: excelRow.password !== '-' ? excelRow.password : undefined,
+          };
+
+          await requestJson("/api/sources/", {
+            method: "POST",
+            body: JSON.stringify(newSourceData),
+          });
+          
+          successCount++;
+        } catch (err) {
+          console.error(`Failed to import ${excelRow.source}:`, err);
+          errorCount++;
+        }
+      }
+
+      setSuccessMessage(`Successfully imported ${successCount} sources. ${errorCount > 0 ? `Failed: ${errorCount}` : ''}`);
+      setTimeout(() => setSuccessMessage(""), 5000);
+
+      await fetchSources();
+      await fetchStats();
+      setIsViewExcelFilesModalOpen(false);
+    } catch (err) {
+      setError(err.message || "Failed to bulk import sources");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getCombinedSources = () => {
+    if (!showExcelSources) {
+      return sources;
+    }
+
+    const excelSources = excelFiles.map((row) => ({
+      id: `excel-${row.id}`,
+      name: row.source,
+      url: row.url,
+      login: row.login_required === 'Yes' ? "Required" : "Public",
+      status: "EXCEL_SOURCE",
+      lastFetch: "From Excel",
+      tenders: 0,
+      isPublic: row.login_required !== 'Yes',
+      isEnabled: false,
+      excelPath: null,
+      isExcelSource: true,
+      excelData: row,
+    }));
+
+    return [...sources, ...excelSources];
   };
 
   return (
@@ -412,7 +720,7 @@ setRefreshingSource(source.name);
       {/* Content */}
       <div className="p-6 max-w-[1400px] mx-auto">
         {/* Statistics Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-6 gap-4 mb-6">
           <div className="bg-white rounded-lg border border-gray-200 p-5">
             <div className="text-sm text-gray-600 mb-1">Total Sources</div>
             <div className="text-3xl font-semibold text-gray-900">
@@ -437,36 +745,91 @@ setRefreshingSource(source.name);
               {stats.errors}
             </div>
           </div>
+          <div className="bg-white rounded-lg border border-gray-200 p-5">
+            <div className="text-sm text-gray-600 mb-1">Excel Sources</div>
+            <div className="text-3xl font-semibold text-blue-600">
+              {excelFiles.length}
+            </div>
+          </div>
+          {importStatus && (
+            <div className="bg-white rounded-lg border border-gray-200 p-5">
+              <div className="text-sm text-gray-600 mb-1">Import Rate</div>
+              <div className="text-3xl font-semibold text-green-600">
+                {importStatus.import_rate}
+              </div>
+              <div className="text-xs text-gray-500 mt-1">
+                {importStatus.imported_tenders} of {importStatus.excel_rows} rows
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Search and Add Button */}
+        {/* Search and Action Buttons */}
         <div className="flex justify-between gap-3 mb-6">
-          <div className="relative" style={{ width: "400px" }}>
-            <Search
-              className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"
-              size={18}
-            />
-            <input
-              type="text"
-              placeholder="Search sources..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
+          <div className="flex gap-3 items-center">
+            <div className="relative" style={{ width: "400px" }}>
+              <Search
+                className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"
+                size={18}
+              />
+              <input
+                type="text"
+                placeholder="Search sources..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+            <label className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-300 rounded-md cursor-pointer hover:bg-gray-50 transition">
+              <input
+                type="checkbox"
+                checked={showExcelSources}
+                onChange={(e) => setShowExcelSources(e.target.checked)}
+                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+              />
+              <span className="text-sm font-medium text-gray-700">Show Excel Sources</span>
+            </label>
           </div>
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="bg-[#3c83f6] hover:bg-[#2563eb] text-white px-5 py-2.5 rounded-md flex items-center justify-center gap-2 transition font-medium text-sm whitespace-nowrap"
-          >
-            <Plus size={18} />
-            Add Source
-          </button>
+          <div className="flex gap-3">
+            <button
+              onClick={handleManualImport}
+              disabled={loading}
+              className="bg-green-600 hover:bg-green-700 text-white px-5 py-2.5 rounded-md flex items-center justify-center gap-2 transition font-medium text-sm whitespace-nowrap disabled:opacity-50"
+            >
+              <RefreshCw size={18} className={loading ? "animate-spin" : ""} />
+              Import Excel Data
+            </button>
+            <button
+              onClick={handleOpenViewExcelFiles}
+              className="bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 px-5 py-2.5 rounded-md flex items-center justify-center gap-2 transition font-medium text-sm whitespace-nowrap"
+            >
+              <FileSpreadsheet size={18} />
+              Manage Excel
+            </button>
+            <button
+              onClick={() => setIsExcelModalOpen(true)}
+              className="bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 px-5 py-2.5 rounded-md flex items-center justify-center gap-2 transition font-medium text-sm whitespace-nowrap"
+            >
+              <Upload size={18} />
+              Add Excel Path
+            </button>
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="bg-[#3c83f6] hover:bg-[#2563eb] text-white px-5 py-2.5 rounded-md flex items-center justify-center gap-2 transition font-medium text-sm whitespace-nowrap"
+            >
+              <Plus size={18} />
+              Add Source
+            </button>
+          </div>
         </div>
 
         {/* Loading State */}
         {loading && !sources.length && (
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
-            <RefreshCw className="animate-spin mx-auto mb-4 text-gray-400" size={32} />
+            <RefreshCw
+              className="animate-spin mx-auto mb-4 text-gray-400"
+              size={32}
+            />
             <p className="text-gray-500">Loading sources...</p>
           </div>
         )}
@@ -505,17 +868,27 @@ setRefreshingSource(source.name);
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200 bg-white">
-                  {sources.map((source) => (
-                    <tr key={source.id} className="hover:bg-gray-50 transition">
-                      <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                        {source.name}
+                  {getCombinedSources().map((source) => (
+                    <tr 
+                      key={source.id} 
+                      className={`hover:bg-gray-50 transition ${source.isExcelSource ? 'bg-blue-50/30' : ''}`}
+                    >
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2">
+                          {source.isExcelSource && (
+                            <FileSpreadsheet size={16} className="text-blue-600" />
+                          )}
+                          <span className="text-sm font-medium text-gray-900">
+                            {source.name}
+                          </span>
+                        </div>
                       </td>
                       <td className="px-6 py-4">
                         <a
                           href={source.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-sm text-[#3c83f6] hover:text-[#2563eb] flex items-center gap-1.5"
+                          className="text-sm text-[#3c83f6] hover:text-[#2563eb] flex items-center gap-1.5 max-w-md truncate"
                         >
                           {source.url}
                           <ExternalLink size={13} />
@@ -548,11 +921,19 @@ setRefreshingSource(source.name);
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <span
-                          className={`inline-block px-2.5 py-1 rounded-full text-xs font-medium ${getStatusColor(source.status)}`}
-                        >
-                          {source.status}
-                        </span>
+                        {source.isExcelSource ? (
+                          <span className="inline-block px-2.5 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
+                            Excel Source
+                          </span>
+                        ) : (
+                          <span
+                            className={`inline-block px-2.5 py-1 rounded-full text-xs font-medium ${getStatusColor(
+                              source.status
+                            )}`}
+                          >
+                            {source.status}
+                          </span>
+                        )}
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-700">
                         {source.lastFetch}
@@ -561,41 +942,54 @@ setRefreshingSource(source.name);
                         {source.tenders}
                       </td>
                       <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          {source.status?.toUpperCase() !== "DISABLED" && (
-
-                            <label className="relative inline-flex items-center cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={source.isEnabled}
-                                onChange={() => handleToggle(source.id)}
-                                className="sr-only peer"
-                              />
-                              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#3c83f6]"></div>
-                            </label>
-                          )}
-                          <button
-                            onClick={() => handleRefresh(source.id)}
-                            className="text-gray-500 hover:text-[#3c83f6] transition"
-                            title="Refresh"
-                          >
-                            <RefreshCw size={18} />
-                          </button>
-                          <button
-                            onClick={() => handleEdit(source.id)}
-                            className="text-gray-500 hover:text-[#3c83f6] transition"
-                            title="Edit"
-                          >
-                            <Edit size={18} />
-                          </button>
-                          <button
-                            onClick={() => handleDelete(source.id)}
-                            className="text-gray-500 hover:text-red-600 transition"
-                            title="Delete"
-                          >
-                            <Trash2 size={18} />
-                          </button>
-                        </div>
+                        {source.isExcelSource ? (
+                          <div className="flex items-center gap-3">
+                            <button
+                              onClick={() => handleImportFromExcel(source.excelData)}
+                              disabled={loading}
+                              className="text-xs px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                              title="Import as source"
+                            >
+                              <Download size={14} />
+                              Import
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-3">
+                            {source.status?.toUpperCase() !== "DISABLED" && (
+                              <label className="relative inline-flex items-center cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={source.isEnabled}
+                                  onChange={() => handleToggle(source.id)}
+                                  className="sr-only peer"
+                                />
+                                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#3c83f6]"></div>
+                              </label>
+                            )}
+                            <button
+                              onClick={() => handleRefresh(source.id)}
+                              className="text-gray-500 hover:text-[#3c83f6] transition"
+                              title="Refresh"
+                            >
+                              <RefreshCw size={18} />
+                            </button>
+                            <button
+                              onClick={() => handleEdit(source.id)}
+                              className="text-gray-500 hover:text-[#3c83f6] transition"
+                              title="Edit"
+                            >
+                              <Edit size={18} />
+                            </button>
+                            <button
+                              onClick={() => handleDelete(source.id)}
+                              className="text-gray-500 hover:text-red-600 transition"
+                              title="Delete"
+                            >
+                              <Trash2 size={18} />
+                            </button>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -608,272 +1002,371 @@ setRefreshingSource(source.name);
 
       {/* Add Source Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 backdrop-blur-md">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
             <div className="flex items-center justify-between p-6 border-b border-gray-200">
-              <div>
-                <h2 className="text-xl font-semibold text-gray-900">
-                  Add New Source
-                </h2>
-                <p className="text-sm text-gray-500 mt-1">
-                  Add a new data source to monitor for tenders.
-                </p>
-              </div>
+              <h2 className="text-xl font-semibold text-gray-900">
+                Add New Source
+              </h2>
               <button
                 onClick={handleCloseModal}
-                className="text-gray-400 hover:text-gray-600 transition"
+                className="text-gray-400 hover:text-gray-600"
               >
                 <X size={24} />
               </button>
             </div>
 
-            <form onSubmit={handleSubmit}>
-              <div className="p-6">
-                <div className="space-y-5">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-900 mb-2">
-                      Source Name *
-                    </label>
-                    <input
-                      type="text"
-                      name="name"
-                      value={formData.name}
-                      onChange={handleInputChange}
-                      placeholder="e.g., SAM.gov"
-                      required
-                      className="w-full px-4 py-2.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-900 mb-2">
-                      URL *
-                    </label>
-                    <input
-                      type="url"
-                      name="url"
-                      value={formData.url}
-                      onChange={handleInputChange}
-                      placeholder="https://..."
-                      required
-                      className="w-full px-4 py-2.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-900 mb-2">
-                      Excel File Path
-                    </label>
-                    <input
-                      type="text"
-                      name="excelPath"
-                      value={formData.excelPath}
-                      onChange={handleInputChange}
-                      placeholder="e.g., D:\data\tenders.xlsx"
-                      className="w-full px-4 py-2.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Local Excel file path used for offline tender sync
-                    </p>
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between py-2">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-900">
-                          Requires Login
-                        </label>
-                        <p className="text-xs text-gray-500 mt-1">
-                          Enable if this source requires authentication
-                        </p>
-                      </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={formData.loginRequired}
-                          onChange={(e) =>
-                            setFormData((prev) => ({
-                              ...prev,
-                              loginRequired: e.target.checked,
-                            }))
-                          }
-                          className="sr-only peer"
-                        />
-                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#3c83f6]"></div>
-                      </label>
-                    </div>
-                  </div>
-
-                  {formData.loginRequired && (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-900 mb-2">
-                        Password
-                      </label>
-                      <input
-                        type="password"
-                        name="password"
-                        value={formData.password}
-                        onChange={handleInputChange}
-                        placeholder="Enter password"
-                        className="w-full px-4 py-2.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      />
-                    </div>
-                  )}
+            <form onSubmit={handleSubmit} className="p-6">
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Source Name *
+                  </label>
+                  <input
+                    type="text"
+                    name="name"
+                    value={formData.name}
+                    onChange={handleInputChange}
+                    required
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="e.g., Florida DOT"
+                  />
                 </div>
 
-                <div className="flex justify-end gap-3 mt-6 pt-5 border-t border-gray-200">
-                  <button
-                    type="button"
-                    onClick={handleCloseModal}
-                    className="px-5 py-2.5 text-sm border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition font-medium"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="px-5 py-2.5 text-sm bg-[#3c83f6] text-white rounded-lg hover:bg-[#2563eb] transition font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {loading ? "Adding..." : "Add Source"}
-                  </button>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    URL *
+                  </label>
+                  <input
+                    type="url"
+                    name="url"
+                    value={formData.url}
+                    onChange={handleInputChange}
+                    required
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="https://example.com"
+                  />
                 </div>
+
+                <div>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      name="loginRequired"
+                      checked={formData.loginRequired}
+                      onChange={handleInputChange}
+                      className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                    />
+                    <span className="text-sm font-medium text-gray-700">
+                      Login Required
+                    </span>
+                  </label>
+                </div>
+
+                {formData.loginRequired && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Password
+                    </label>
+                    <input
+                      type="password"
+                      name="password"
+                      value={formData.password}
+                      onChange={handleInputChange}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Enter password"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-3 mt-6">
+                <button
+                  type="button"
+                  onClick={handleCloseModal}
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium disabled:opacity-50"
+                >
+                  {loading ? "Adding..." : "Add Source"}
+                </button>
               </div>
             </form>
           </div>
         </div>
       )}
 
-      {/* Edit Source Modal */}
-      {isEditModalOpen && editingSource && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 backdrop-blur-md">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg">
+      {/* Add Excel Path Modal */}
+      {isExcelModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
             <div className="flex items-center justify-between p-6 border-b border-gray-200">
-              <div>
-                <h2 className="text-xl font-semibold text-gray-900">
-                  Edit Source
-                </h2>
-                <p className="text-sm text-gray-500 mt-1">
-                  Update the source configuration below.
-                </p>
-              </div>
+              <h2 className="text-xl font-semibold text-gray-900">
+                Add Excel File Path
+              </h2>
               <button
-                onClick={handleCloseEditModal}
-                className="text-gray-400 hover:text-gray-600 transition"
+                onClick={handleCloseExcelModal}
+                className="text-gray-400 hover:text-gray-600"
               >
                 <X size={24} />
               </button>
             </div>
 
-            <form onSubmit={handleEditSubmit}>
-              <div className="p-6">
-                <div className="space-y-5">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-900 mb-2">
-                      Source Name *
-                    </label>
-                    <input
-                      type="text"
-                      name="name"
-                      value={editingSource.name}
-                      onChange={handleEditInputChange}
-                      placeholder="e.g., SAM.gov"
-                      required
-                      className="w-full px-4 py-2.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    />
-                  </div>
+            <form onSubmit={handleExcelUploadSubmit} className="p-6">
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Excel File Path *
+                  </label>
+                  <input
+                    type="text"
+                    value={excelPath}
+                    onChange={(e) => setExcelPath(e.target.value)}
+                    required
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="C:/path/to/file.xlsx or /path/to/file.xlsx"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    Enter the full path to your Excel file
+                  </p>
+                </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-900 mb-2">
-                      URL *
-                    </label>
-                    <input
-                      type="url"
-                      name="url"
-                      value={editingSource.url}
-                      onChange={handleEditInputChange}
-                      placeholder="https://..."
-                      required
-                      className="w-full px-4 py-2.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    />
-                  </div>
+                <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
+                  <p className="text-xs text-blue-700">
+                    ℹ️ The file will be automatically imported to create sources and tenders
+                  </p>
+                </div>
+              </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-900 mb-2">
-                      Excel File Path
-                    </label>
-                    <input
-                      type="text"
-                      name="excelPath"
-                      value={editingSource.excelPath || ""}
-                      onChange={handleEditInputChange}
-                      placeholder="e.g., D:\data\tenders.xlsx"
-                      className="w-full px-4 py-2.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Local Excel file path used for offline tender sync
-                    </p>
-                  </div>
+              <div className="flex gap-3 mt-6">
+                <button
+                  type="button"
+                  onClick={handleCloseExcelModal}
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium disabled:opacity-50"
+                >
+                  {loading ? "Registering..." : "Register & Import"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
-                  <div>
-                    <div className="flex items-center justify-between py-2">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-900">
-                          Requires Login
-                        </label>
-                        <p className="text-xs text-gray-500 mt-1">
-                          Enable if this source requires authentication
-                        </p>
+      {/* View Excel Files Modal */}
+      {isViewExcelFilesModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-6xl w-full max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <div>
+                <h2 className="text-xl font-semibold text-gray-900">
+                  Excel Sources ({excelFiles.length})
+                </h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Import sources from Excel data
+                </p>
+              </div>
+              <button
+                onClick={handleCloseViewExcelFiles}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-auto p-6">
+              {loadingExcelFiles ? (
+                <div className="flex items-center justify-center py-12">
+                  <RefreshCw className="animate-spin text-gray-400" size={32} />
+                </div>
+              ) : excelFiles.length === 0 ? (
+                <div className="text-center py-12">
+                  <FileSpreadsheet size={48} className="mx-auto text-gray-300 mb-3" />
+                  <p className="text-gray-500">No Excel sources found</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {excelFiles.map((row) => (
+                    <div
+                      key={row.id}
+                      className="border border-gray-200 rounded-lg p-4 hover:border-blue-300 transition"
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-2">
+                            <h3 className="font-medium text-gray-900 truncate">
+                              {row.source}
+                            </h3>
+                            {row.login_required === 'Yes' && (
+                              <Lock size={14} className="text-yellow-600 flex-shrink-0" />
+                            )}
+                          </div>
+                          <a
+                            href={row.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1 mb-2"
+                          >
+                            {row.url}
+                            <ExternalLink size={12} />
+                          </a>
+                          <div className="flex gap-4 text-xs text-gray-500">
+                            {row.user !== '-' && <span>User: {row.user}</span>}
+                            {row.remarks && <span>Note: {row.remarks}</span>}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleImportFromExcel(row)}
+                          disabled={loading}
+                          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium transition disabled:opacity-50 flex items-center gap-1.5 flex-shrink-0"
+                        >
+                          <Download size={14} />
+                          Import
+                        </button>
                       </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={editingSource.loginRequired}
-                          onChange={(e) =>
-                            setEditingSource((prev) => ({
-                              ...prev,
-                              loginRequired: e.target.checked,
-                            }))
-                          }
-                          className="sr-only peer"
-                        />
-                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#3c83f6]"></div>
-                      </label>
                     </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="border-t border-gray-200 p-6 flex justify-between">
+              <button
+                onClick={handleCloseViewExcelFiles}
+                className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 font-medium"
+              >
+                Close
+              </button>
+              <button
+                onClick={handleBulkImportFromExcel}
+                disabled={loading || excelFiles.length === 0}
+                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium disabled:opacity-50 flex items-center gap-2"
+              >
+                <Download size={18} />
+                Import All ({excelFiles.length})
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Source Modal */}
+      {isEditModalOpen && editingSource && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <h2 className="text-xl font-semibold text-gray-900">
+                Edit Source
+              </h2>
+              <button
+                onClick={handleCloseEditModal}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            <form onSubmit={handleEditSubmit} className="p-6">
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Source Name *
+                  </label>
+                  <input
+                    type="text"
+                    name="name"
+                    value={editingSource.name}
+                    onChange={handleEditInputChange}
+                    required
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    URL *
+                  </label>
+                  <input
+                    type="url"
+                    name="url"
+                    value={editingSource.url}
+                    onChange={handleEditInputChange}
+                    required
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Excel Path (optional)
+                  </label>
+                  <input
+                    type="text"
+                    name="excelPath"
+                    value={editingSource.excelPath}
+                    onChange={handleEditInputChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="/path/to/file.xlsx"
+                  />
+                </div>
+
+                <div>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      name="loginRequired"
+                      checked={editingSource.loginRequired}
+                      onChange={handleEditInputChange}
+                      className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                    />
+                    <span className="text-sm font-medium text-gray-700">
+                      Login Required
+                    </span>
+                  </label>
+                </div>
+
+                {editingSource.loginRequired && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Password (leave empty to keep current)
+                    </label>
+                    <input
+                      type="password"
+                      name="password"
+                      value={editingSource.password}
+                      onChange={handleEditInputChange}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
                   </div>
+                )}
+              </div>
 
-                  {editingSource.loginRequired && (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-900 mb-2">
-                        Password (leave blank to keep current)
-                      </label>
-                      <input
-                        type="password"
-                        name="password"
-                        value={editingSource.password}
-                        onChange={handleEditInputChange}
-                        placeholder="Enter new password"
-                        className="w-full px-4 py-2.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      />
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex justify-end gap-3 mt-6 pt-5 border-t border-gray-200">
-                  <button
-                    type="button"
-                    onClick={handleCloseEditModal}
-                    className="px-5 py-2.5 text-sm border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition font-medium"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="px-5 py-2.5 text-sm bg-[#3c83f6] text-white rounded-lg hover:bg-[#2563eb] transition font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {loading ? "Updating..." : "Update Source"}
-                  </button>
-                </div>
+              <div className="flex gap-3 mt-6">
+                <button
+                  type="button"
+                  onClick={handleCloseEditModal}
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium disabled:opacity-50"
+                >
+                  {loading ? "Saving..." : "Save Changes"}
+                </button>
               </div>
             </form>
           </div>

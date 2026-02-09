@@ -16,9 +16,11 @@ import {
   ExternalLink,
   ChevronDown,
   Check,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { EmptyState } from '../components/States';
 import { getErrorMessage, requestJson, requestWithRetry } from '../utils/api';
+import { isValidTender, mapExcelToTender, mapTenderForDisplay, setKeywords } from '../utils/Excelmapper';
 
 const USE_MOCK_TENDERS = false; // Set to false to use real API
 const USE_MOCK_NOTIFICATIONS = true; // TODO BACKEND: real notifications API
@@ -30,6 +32,15 @@ const TENDER_ENDPOINTS = {
   delete: (id) => `/api/tenders/${id}`,
   export: '/api/tenders/export/excel',
   stats: '/api/tenders/stats/dashboard',
+};
+
+const EXCEL_ENDPOINTS = {
+  all: '/api/excel_control/excel/all',
+};
+
+const KEYWORD_ENDPOINTS = {
+  active: '/api/keywords/active',
+  list: '/api/keywords/',
 };
 
 const NOTIFICATION_ENDPOINTS = {
@@ -48,6 +59,9 @@ const StatusBadge = ({ status }) => {
     viewed: 'bg-gray-100 text-gray-700',
     saved: 'bg-blue-100 text-blue-700',
     expired: 'bg-red-100 text-red-700',
+    open: 'bg-green-100 text-green-700',
+    closed: 'bg-gray-100 text-gray-700',
+    pending: 'bg-yellow-100 text-yellow-700',
   };
 
   const displayStatus = status.charAt(0).toUpperCase() + status.slice(1);
@@ -77,6 +91,15 @@ const TenderListing = () => {
   const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS);
   const notificationMenuRef = useRef(null);
 
+  // Excel tenders state
+  const [showExcelTenders, setShowExcelTenders] = useState(true);
+  const [excelTenders, setExcelTenders] = useState([]);
+  const [loadingExcel, setLoadingExcel] = useState(false);
+  const [showAllExcelRows, setShowAllExcelRows] = useState(false); // Debug: show all rows
+
+  // Keywords state
+  const [keywordsLoaded, setKeywordsLoaded] = useState(false);
+
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize] = useState(25);
@@ -86,7 +109,50 @@ const TenderListing = () => {
   const [tenders, setTenders] = useState([]);
   const [sources, setSources] = useState(['All Sources']);
 
-  const statuses = ['All Status', 'new', 'viewed', 'saved', 'expired'];
+  const statuses = ['All Status', 'new', 'viewed', 'saved', 'expired', 'open', 'closed', 'pending'];
+
+  // Fetch keywords from backend and update the mapper
+  const fetchKeywords = async () => {
+    try {
+      console.log('🔑 Fetching keywords from backend...');
+      
+      // Try the active keywords endpoint first
+      let keywordData;
+      try {
+        keywordData = await requestJson(KEYWORD_ENDPOINTS.active);
+      } catch (err) {
+        console.log('Active endpoint failed, trying list endpoint...');
+        keywordData = await requestJson(KEYWORD_ENDPOINTS.list);
+      }
+      
+      console.log('📦 Raw keyword data:', keywordData);
+      
+      // Handle different response formats
+      let keywords = [];
+      if (Array.isArray(keywordData)) {
+        keywords = keywordData.map(k => k.keyword || k.name || k).filter(Boolean);
+      } else if (keywordData?.items && Array.isArray(keywordData.items)) {
+        keywords = keywordData.items.map(k => k.keyword || k.name || k).filter(Boolean);
+      } else if (keywordData?.data && Array.isArray(keywordData.data)) {
+        keywords = keywordData.data.map(k => k.keyword || k.name || k).filter(Boolean);
+      }
+      
+      if (keywords.length > 0) {
+        console.log(`✅ Loaded ${keywords.length} keywords from backend`);
+        console.log('📋 Sample keywords:', keywords.slice(0, 10));
+        setKeywords(keywords); // Update the mapper's keyword list
+        setKeywordsLoaded(true);
+      } else {
+        console.warn('⚠️ No keywords found in response, using default keyword list');
+        setKeywordsLoaded(true);
+      }
+      
+    } catch (err) {
+      console.error('❌ Error fetching keywords:', err);
+      console.log('ℹ️ Using default keyword list from mapper');
+      setKeywordsLoaded(true); // Still mark as loaded to continue
+    }
+  };
 
   // Format date for API (YYYY-MM-DD)
   const formatDateForAPI = (date) => {
@@ -95,6 +161,72 @@ const TenderListing = () => {
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
+  };
+
+  // Fetch Excel tenders
+  const fetchExcelTenders = async () => {
+    // Wait for keywords to be loaded first
+    if (!keywordsLoaded) {
+      console.log('⏳ Waiting for keywords to load before fetching Excel tenders...');
+      return;
+    }
+
+    try {
+      setLoadingExcel(true);
+      
+      console.log('🔍 Fetching Excel data for tenders...');
+      const data = await requestJson(`${EXCEL_ENDPOINTS.all}?page=1&limit=1000`);
+      
+      console.log('📦 Raw API response:', data);
+      
+      // Handle different response formats
+      let rawData = null;
+      if (Array.isArray(data)) {
+        rawData = data;
+      } else if (data?.data && Array.isArray(data.data)) {
+        rawData = data.data;
+      } else if (data?.items && Array.isArray(data.items)) {
+        rawData = data.items;
+      } else {
+        console.warn('⚠️ Unknown response format:', data);
+        setExcelTenders([]);
+        return;
+      }
+      
+      console.log(`📊 Found ${rawData.length} raw Excel rows`);
+      
+      // Filter by detected_sheet_type
+      const tenderRows = rawData; // Show all rows!
+      
+      console.log(`🎯 Found ${tenderRows.length} tender rows`);
+      
+      // Map tender rows using the mapper (which now includes keyword matching)
+      const excelTenderData = tenderRows.map(row => mapExcelToTender(row));
+      console.log(`🗺️ Mapped ${excelTenderData.length} tenders`);
+      
+      // Filter valid tenders
+      const validTenders = excelTenderData.filter(isValidTender);
+      console.log(`✅ ${validTenders.length} valid tenders after filtering`);
+      
+      // Map to display format (includes keyword matching)
+      const mappedTenders = validTenders.map(tender => mapTenderForDisplay(tender));
+      
+      // Log keyword matching stats
+      const tendersWithKeywords = mappedTenders.filter(t => t.keywords && t.keywords.length > 0);
+      console.log(`🔑 ${tendersWithKeywords.length} tenders have keyword matches`);
+      if (tendersWithKeywords.length > 0) {
+        console.log('📋 Sample tender with keywords:', tendersWithKeywords[0].title, '→', tendersWithKeywords[0].keywords);
+      }
+      
+      setExcelTenders(mappedTenders);
+      console.log(`✅ Successfully loaded ${mappedTenders.length} tenders from Excel`);
+      
+    } catch (err) {
+      console.error('❌ Error fetching Excel tenders:', err);
+      setExcelTenders([]);
+    } finally {
+      setLoadingExcel(false);
+    }
   };
 
   // Fetch tenders from API
@@ -150,11 +282,12 @@ const TenderListing = () => {
         deadline: tender.deadline_date ? new Date(tender.deadline_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A',
         daysLeft: tender.days_until_deadline || 0,
         status: tender.status,
-        keywords: [], // TODO: Map keyword_matches when available
+        keywords: tender.keyword_matches ? tender.keyword_matches.map(k => k.keyword) : [],
         published: tender.published_date ? new Date(tender.published_date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) : 'N/A',
         description: tender.description || 'No description available',
         attachments: tender.attachments || [],
         source_url: tender.source_url,
+        isExcelTender: false,
       }));
 
       setTenders(mappedTenders);
@@ -166,6 +299,35 @@ const TenderListing = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Get combined tenders with filtering
+  const getCombinedTenders = () => {
+    if (!showExcelTenders) {
+      return tenders;
+    }
+    
+    // Filter Excel tenders by search and status
+    let filteredExcelTenders = [...excelTenders];
+    
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      filteredExcelTenders = filteredExcelTenders.filter(t =>
+        t.title.toLowerCase().includes(query) ||
+        t.code.toLowerCase().includes(query) ||
+        t.agency.toLowerCase().includes(query) ||
+        (t.description && t.description.toLowerCase().includes(query)) ||
+        (t.keywords && t.keywords.some(k => k.toLowerCase().includes(query)))
+      );
+    }
+    
+    if (selectedStatus !== 'All Status') {
+      filteredExcelTenders = filteredExcelTenders.filter(t =>
+        t.status.toLowerCase() === selectedStatus.toLowerCase()
+      );
+    }
+    
+    return [...tenders, ...filteredExcelTenders];
   };
 
   // Fetch tender details
@@ -189,7 +351,7 @@ const TenderListing = () => {
         deadline: data.deadline_date ? new Date(data.deadline_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A',
         daysLeft: data.days_until_deadline || 0,
         status: data.status,
-        keywords: [], // TODO: Map keyword_matches
+        keywords: data.keyword_matches ? data.keyword_matches.map(k => k.keyword) : [],
         published: data.published_date ? new Date(data.published_date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) : 'N/A',
         description: data.description || 'No description available',
         attachments: data.attachments || [],
@@ -280,10 +442,18 @@ const TenderListing = () => {
     }
   };
 
-  // Fetch tenders when filters change
+  // Fetch keywords first, then fetch tenders
   useEffect(() => {
-    fetchTenders();
-  }, [currentPage, searchQuery, selectedStatus, selectedSource, startDate, endDate]);
+    fetchKeywords();
+  }, []);
+
+  // Fetch tenders when keywords are loaded and filters change
+  useEffect(() => {
+    if (keywordsLoaded) {
+      fetchTenders();
+      fetchExcelTenders();
+    }
+  }, [keywordsLoaded, currentPage, searchQuery, selectedStatus, selectedSource, startDate, endDate]);
 
   // Fetch notifications
   const fetchNotifications = async () => {
@@ -463,13 +633,19 @@ const TenderListing = () => {
   };
 
   const handleViewTender = async (tender) => {
-    await fetchTenderDetails(tender.id);
+    if (tender.isExcelTender) {
+      setSelectedTender(tender);
+    } else {
+      await fetchTenderDetails(tender.id);
+    }
   };
 
   const handleSaveTender = async (tenderId) => {
     await updateTenderStatus(tenderId, 'saved');
     setOpenDropdown(null);
   };
+
+  const displayTenders = getCombinedTenders();
 
   return (
     <div className="h-screen flex flex-col bg-gray-50">
@@ -480,7 +656,10 @@ const TenderListing = () => {
               Tender Listings
             </h1>
             <p className="text-sm text-gray-500 mt-0.5">
-              {totalTenders} tenders found
+              {totalTenders + excelTenders.length} tenders found
+              {excelTenders.length > 0 && showExcelTenders && (
+                <span className="text-blue-600"> (including {excelTenders.length} from Excel)</span>
+              )}
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -570,7 +749,7 @@ const TenderListing = () => {
         </div>
       </div>
 
-      {loading && (
+      {(loading || loadingExcel) && (
         <div className="mx-6 mt-4 text-sm text-gray-500 flex items-center gap-2">
           <span className="animate-spin h-4 w-4 border-2 border-gray-300 border-t-transparent rounded-full"></span>
           Loading tenders...
@@ -756,6 +935,19 @@ const TenderListing = () => {
               )}
             </div>
 
+            <label className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-md cursor-pointer hover:bg-gray-50 transition">
+              <input
+                type="checkbox"
+                checked={showExcelTenders}
+                onChange={(e) => setShowExcelTenders(e.target.checked)}
+                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+              />
+              <FileSpreadsheet size={14} />
+              <span className="text-sm font-medium text-gray-700">
+                Show Excel Tenders ({excelTenders.length})
+              </span>
+            </label>
+
             <div>
               {hasActiveFilters && (
                 <button
@@ -784,7 +976,7 @@ const TenderListing = () => {
               </thead>
 
               <tbody className="divide-y divide-gray-100">
-                {tenders.length === 0 && !loading ? (
+                {displayTenders.length === 0 && !loading && !loadingExcel ? (
                   <tr>
                     <td colSpan={7} className="px-6 py-8">
                       <EmptyState
@@ -794,27 +986,53 @@ const TenderListing = () => {
                     </td>
                   </tr>
                 ) : (
-                  tenders.map((t) => (
-                    <tr key={t.id} className="hover:bg-gray-50 transition">
+                  displayTenders.map((t) => (
+                    <tr 
+                      key={t.id} 
+                      className={`hover:bg-gray-50 transition ${t.isExcelTender ? 'bg-blue-50/30' : ''}`}
+                    >
                       <td className="px-6 py-4">
-                        <p className="text-sm font-semibold text-gray-800 mb-1 max-w-[300px]">
-                          {t.title}
-                        </p>
+                        <div className="flex items-center gap-2 mb-1">
+                          {t.isExcelTender && (
+                            <FileSpreadsheet size={14} className="text-blue-600 flex-shrink-0" />
+                          )}
+                          <p className="text-sm font-semibold text-gray-800 max-w-[300px]">
+                            {t.title}
+                          </p>
+                        </div>
                         <p className="text-xs text-gray-500">{t.code}</p>
+                        {t.isExcelTender && t.type && (
+                          <p className="text-xs text-blue-600 mt-0.5">{t.type}</p>
+                        )}
                       </td>
 
                       <td className="px-6 py-4">
                         <p className="text-sm text-gray-700 mb-1">{t.agency}</p>
                         <p className="text-xs text-gray-500">{t.location}</p>
+                        {t.contact && (
+                          <p className="text-xs text-gray-400 mt-0.5">{t.contact}</p>
+                        )}
                       </td>
 
-                      <td className="px-6 py-4 text-sm text-gray-600">
-                        {t.source}
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-1.5">
+                          {t.isExcelTender && (
+                            <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs font-medium">
+                              Excel
+                            </span>
+                          )}
+                          <span className="text-sm text-gray-600">{t.source}</span>
+                        </div>
                       </td>
 
                       <td className="px-6 py-4">
                         <p className="text-sm text-gray-800 font-medium mb-1">{t.deadline}</p>
-                        <p className="text-xs text-gray-500">{t.daysLeft} days left</p>
+                        <p className="text-xs text-gray-500">
+                          {t.daysLeft > 0 ? `${t.daysLeft} days left` : 'Expired'}
+                        </p>
+                        {t.phase && (
+                          <p className="text-xs text-blue-600 mt-0.5">Phase: {t.phase}</p>
+                        )}
                       </td>
 
                       <td className="px-6 py-4">
@@ -823,17 +1041,22 @@ const TenderListing = () => {
 
                       <td className="px-6 py-4">
                         <div className="flex flex-col gap-1.5">
-                          {t.keywords.length > 0 ? (
-                            t.keywords.map((keyword, idx) => (
+                          {t.keywords && t.keywords.length > 0 ? (
+                            t.keywords.slice(0, 3).map((keyword, idx) => (
                               <span
                                 key={idx}
-                                className="w-fit px-2.5 py-0.5 rounded-full bg-gray-100 text-xs font-medium text-gray-700"
+                                className="w-fit px-2.5 py-0.5 rounded-full bg-blue-100 text-xs font-medium text-blue-700"
                               >
                                 {keyword}
                               </span>
                             ))
                           ) : (
                             <span className="text-xs text-gray-400">No keywords</span>
+                          )}
+                          {t.keywords && t.keywords.length > 3 && (
+                            <span className="text-xs text-gray-500">
+                              +{t.keywords.length - 3} more
+                            </span>
                           )}
                         </div>
                       </td>
@@ -843,6 +1066,7 @@ const TenderListing = () => {
                           <button
                             className="p-1.5 rounded hover:bg-blue-500 transition"
                             onClick={() => handleViewTender(t)}
+                            title="View details"
                           >
                             <Eye
                               size={18}
@@ -850,53 +1074,65 @@ const TenderListing = () => {
                               className="cursor-pointer text-gray-600 hover:text-white"
                             />
                           </button>
-                          <button
-                            className="p-1.5 rounded hover:bg-blue-500 transition"
-                            onClick={() => handleSaveTender(t.id)}
-                          >
-                            <Bookmark size={18} strokeWidth={2} className="cursor-pointer text-gray-600 hover:text-white" />
-                          </button>
-                          <div className="relative">
-                            <button
-                              onClick={() => setOpenDropdown(openDropdown === t.id ? null : t.id)}
-                              className="p-1.5 rounded hover:bg-blue-500 transition"
-                            >
-                              <MoreHorizontal
-                                size={18}
-                                strokeWidth={2}
-                                className="cursor-pointer text-gray-600 hover:text-white"
-                              />
-                            </button>
-                            {openDropdown === t.id && (
-                              <>
-                                <div
-                                  className="fixed inset-0 z-10"
-                                  onClick={() => setOpenDropdown(null)}
-                                />
-                                <div className="absolute right-0 top-6 mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-20 py-1">
-                                  {t.source_url && (
-                                    <a
-                                      href={t.source_url}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="w-full text-left px-4 py-2 text-sm text-gray-700 rounded hover:bg-blue-500 hover:text-white flex items-center gap-2"
+                          
+                          {!t.isExcelTender && (
+                            <>
+                              <button
+                                className="p-1.5 rounded hover:bg-blue-500 transition"
+                                onClick={() => handleSaveTender(t.id)}
+                                title="Save tender"
+                              >
+                                <Bookmark size={18} strokeWidth={2} className="cursor-pointer text-gray-600 hover:text-white" />
+                              </button>
+                              <div className="relative">
+                                <button
+                                  onClick={() => setOpenDropdown(openDropdown === t.id ? null : t.id)}
+                                  className="p-1.5 rounded hover:bg-blue-500 transition"
+                                >
+                                  <MoreHorizontal
+                                    size={18}
+                                    strokeWidth={2}
+                                    className="cursor-pointer text-gray-600 hover:text-white"
+                                  />
+                                </button>
+                                {openDropdown === t.id && (
+                                  <>
+                                    <div
+                                      className="fixed inset-0 z-10"
                                       onClick={() => setOpenDropdown(null)}
-                                    >
-                                      <ExternalLink size={14} />
-                                      Open Source URL
-                                    </a>
-                                  )}
-                                  <button
-                                    onClick={() => handleSaveTender(t.id)}
-                                    className="w-full text-left px-4 py-2 text-sm text-gray-700 rounded hover:bg-blue-500 hover:text-white flex items-center gap-2"
-                                  >
-                                    <Bookmark size={14} />
-                                    Save Tender
-                                  </button>
-                                </div>
-                              </>
-                            )}
-                          </div>
+                                    />
+                                    <div className="absolute right-0 top-6 mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-20 py-1">
+                                      {t.source_url && (
+                                        <a
+                                          href={t.source_url}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="w-full text-left px-4 py-2 text-sm text-gray-700 rounded hover:bg-blue-500 hover:text-white flex items-center gap-2"
+                                          onClick={() => setOpenDropdown(null)}
+                                        >
+                                          <ExternalLink size={14} />
+                                          Open Source URL
+                                        </a>
+                                      )}
+                                      <button
+                                        onClick={() => handleSaveTender(t.id)}
+                                        className="w-full text-left px-4 py-2 text-sm text-gray-700 rounded hover:bg-blue-500 hover:text-white flex items-center gap-2"
+                                      >
+                                        <Bookmark size={14} />
+                                        Save Tender
+                                      </button>
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            </>
+                          )}
+                          
+                          {t.isExcelTender && (
+                            <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-medium">
+                              From Excel
+                            </span>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -908,7 +1144,9 @@ const TenderListing = () => {
         </div>
 
         <div className="flex justify-between items-center mt-4 text-sm text-gray-500">
-          <span>Showing {tenders.length} of {totalTenders} tenders</span>
+          <span>
+            Showing {displayTenders.length} of {totalTenders + excelTenders.length} tenders
+          </span>
           <div className="flex gap-2">
             <button
               onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
@@ -939,7 +1177,15 @@ const TenderListing = () => {
           <div className="fixed top-0 right-0 h-full w-[500px] bg-white shadow-2xl z-50 overflow-y-auto">
             <div className="p-6">
               <div className="flex justify-between items-start mb-6">
-                <StatusBadge status={selectedTender.status} />
+                <div className="flex gap-2">
+                  <StatusBadge status={selectedTender.status} />
+                  {selectedTender.isExcelTender && (
+                    <span className="px-3 py-1 rounded-md text-xs font-medium bg-blue-100 text-blue-700 flex items-center gap-1">
+                      <FileSpreadsheet size={12} />
+                      Excel Import
+                    </span>
+                  )}
+                </div>
                 <button
                   onClick={() => setSelectedTender(null)}
                   className="text-gray-400 hover:text-gray-600 transition"
@@ -1004,10 +1250,27 @@ const TenderListing = () => {
                 </div>
               </div>
 
-              {selectedTender.keywords.length > 0 && (
+              {selectedTender.type && (
+                <div className="mb-6 p-3 bg-blue-50 rounded-lg">
+                  <p className="text-xs text-gray-500 mb-1">Type</p>
+                  <p className="text-sm font-semibold text-blue-900">{selectedTender.type}</p>
+                </div>
+              )}
+
+              {selectedTender.contact && (
+                <div className="mb-6 p-3 bg-gray-50 rounded-lg">
+                  <p className="text-xs text-gray-500 mb-1">Contact</p>
+                  <p className="text-sm font-semibold text-gray-900">{selectedTender.contact}</p>
+                </div>
+              )}
+
+              {selectedTender.keywords && selectedTender.keywords.length > 0 && (
                 <div className="mb-8">
                   <div className="flex items-center gap-2 mb-3">
                     <span className="text-sm font-semibold text-gray-900">Keyword Matches</span>
+                    <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs font-medium">
+                      {selectedTender.keywords.length}
+                    </span>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {selectedTender.keywords.map((keyword, idx) => (
